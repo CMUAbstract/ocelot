@@ -18,20 +18,17 @@ target triple = "msp430-none-unknown-elf"
 @alloc6 = private unnamed_addr constant <{ [7 x i8] }> <{ [7 x i8] c"temp\0D\0A\00" }>, align 1
 @num_dirty_gv = common externally_initialized global i16 0
 @_numBoots = common externally_initialized global i16 0
-@data_src = global [4 x i8*] zeroinitializer, section ".nv_vars", align 2
-@data_dest = global [4 x i8*] zeroinitializer, section ".nv_vars", align 2
-@data_size = global [4 x i16] zeroinitializer, section ".nv_vars", align 2
+@data_src = global [1 x i8*] zeroinitializer, section ".nv_vars", align 2
+@data_dest = global [1 x i8*] zeroinitializer, section ".nv_vars", align 2
+@data_size = global [1 x i16] zeroinitializer, section ".nv_vars", align 2
 @atomic_depth = external global i16
-@_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E = internal global <{ [10 x i8] }> zeroinitializer, section ".nv_vars", align 2
-@_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E_bak = internal global <{ [10 x i8] }> zeroinitializer, section ".nv_vars", align 2
-@_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE = internal global <{ [20 x i8] }> zeroinitializer, section ".nv_vars", align 2
-@_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE_bak = internal global <{ [20 x i8] }> zeroinitializer, section ".nv_vars", align 2
 @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E = internal global <{ [1 x i8] }> zeroinitializer, section ".nv_vars", align 1
 @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E_bak = internal global <{ [1 x i8] }> zeroinitializer, section ".nv_vars", align 1
-@_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE = internal global <{ [1 x i8] }> zeroinitializer, section ".nv_vars", align 1
-@_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE_bak = internal global <{ [1 x i8] }> zeroinitializer, section ".nv_vars", align 1
 @_ZN10greenhouse3app5MOIST17h959cb7d1bbbb882bE = internal global <{ [2 x i8] }> zeroinitializer, section ".nv_vars", align 2
 @_ZN10greenhouse3app4TEMP17h50e2fb0948c59ac1E = internal global <{ [4 x i8] }> zeroinitializer, section ".nv_vars", align 2
+@_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE = internal global <{ [1 x i8] }> zeroinitializer, section ".nv_vars", align 1
+@_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E = internal global <{ [10 x i8] }> zeroinitializer, section ".nv_vars", align 2
+@_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE = internal global <{ [20 x i8] }> zeroinitializer, section ".nv_vars", align 2
 @_ZN10greenhouse3app3AVG17hdf1ec3a33bfd291dE = internal global <{ [6 x i8] }> zeroinitializer, section ".nv_vars", align 2
 @_ZN10greenhouse3app8COMPUTEC17h57840fa4e15d44e7E = internal global <{ [1 x i8] }> zeroinitializer, section ".nv_vars", align 1
 @_ZN10greenhouse3app5SENDC17h9bde036371f22910E = internal global <{ [1 x i8] }> zeroinitializer, section ".nv_vars", align 1
@@ -446,7 +443,7 @@ bb1:                                              ; preds = %start
 ; Function Attrs: nounwind
 define internal i16 @_ZN10greenhouse9adcSample17hfec5df1cf603bdcaE(i16 %count) unnamed_addr #0 {
 start:
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb1
 
 bb1:                                              ; preds = %start
@@ -458,7 +455,7 @@ bb2:                                              ; preds = %bb1
   br label %bb3
 
 bb3:                                              ; preds = %bb2
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb4
 
 bb4:                                              ; preds = %bb3
@@ -468,13 +465,33 @@ bb4:                                              ; preds = %bb3
 }
 
 ; Function Attrs: nounwind
-declare void @start_atomic() unnamed_addr #0
+define void @output_guard_start() unnamed_addr #0 {
+start:
+  call void @start_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: nounwind
 declare void @printf(i8*, ...) unnamed_addr #0
 
 ; Function Attrs: nounwind
+define void @output_guard_end() unnamed_addr #0 {
+start:
+  call void @end_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
+
+; Function Attrs: nounwind
 declare void @end_atomic() unnamed_addr #0
+
+; Function Attrs: nounwind
+declare void @start_atomic() unnamed_addr #0
 
 ; Function Attrs: nounwind
 define internal i16 @_ZN10greenhouse10tempConfig17h27e1101ef9551221E() unnamed_addr #0 {
@@ -536,7 +553,7 @@ bb6:                                              ; preds = %bb3
 ; Function Attrs: nounwind
 define internal float @_ZN10greenhouse8tempDegC17h8ab38ebf75b0d3b5E(i16 %count) unnamed_addr #0 {
 start:
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb1
 
 bb1:                                              ; preds = %start
@@ -548,7 +565,7 @@ bb2:                                              ; preds = %bb1
   br label %bb3
 
 bb3:                                              ; preds = %bb2
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb4
 
 bb4:                                              ; preds = %bb3
@@ -627,34 +644,13 @@ bb7:                                              ; preds = %bb4
   br i1 %14, label %bb7.split1, label %bb7.split
 
 bb7.split1:                                       ; preds = %bb7
-  %15 = load <{ [10 x i8] }>, <{ [10 x i8] }>* @_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E
-  store <{ [10 x i8] }> %15, <{ [10 x i8] }>* @_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E_bak
-  %16 = bitcast <{ [10 x i8] }>* @_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E to i8*
-  %17 = bitcast <{ [10 x i8] }>* @_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E_bak to i8*
-  %18 = getelementptr inbounds <{ [10 x i8] }>, <{ [10 x i8] }>* null, i16 1
-  %19 = ptrtoint <{ [10 x i8] }>* %18 to i16
+  %15 = load <{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E
+  store <{ [1 x i8] }> %15, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E_bak
+  %16 = bitcast <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E to i8*
+  %17 = bitcast <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E_bak to i8*
+  %18 = getelementptr inbounds <{ [1 x i8] }>, <{ [1 x i8] }>* null, i16 1
+  %19 = ptrtoint <{ [1 x i8] }>* %18 to i16
   call void @log_entry(i8* %16, i8* %17, i16 %19)
-  %20 = load <{ [20 x i8] }>, <{ [20 x i8] }>* @_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE
-  store <{ [20 x i8] }> %20, <{ [20 x i8] }>* @_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE_bak
-  %21 = bitcast <{ [20 x i8] }>* @_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE to i8*
-  %22 = bitcast <{ [20 x i8] }>* @_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE_bak to i8*
-  %23 = getelementptr inbounds <{ [20 x i8] }>, <{ [20 x i8] }>* null, i16 1
-  %24 = ptrtoint <{ [20 x i8] }>* %23 to i16
-  call void @log_entry(i8* %21, i8* %22, i16 %24)
-  %25 = load <{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E
-  store <{ [1 x i8] }> %25, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E_bak
-  %26 = bitcast <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E to i8*
-  %27 = bitcast <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E_bak to i8*
-  %28 = getelementptr inbounds <{ [1 x i8] }>, <{ [1 x i8] }>* null, i16 1
-  %29 = ptrtoint <{ [1 x i8] }>* %28 to i16
-  call void @log_entry(i8* %26, i8* %27, i16 %29)
-  %30 = load <{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE
-  store <{ [1 x i8] }> %30, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE_bak
-  %31 = bitcast <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE to i8*
-  %32 = bitcast <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE_bak to i8*
-  %33 = getelementptr inbounds <{ [1 x i8] }>, <{ [1 x i8] }>* null, i16 1
-  %34 = ptrtoint <{ [1 x i8] }>* %33 to i16
-  call void @log_entry(i8* %31, i8* %32, i16 %34)
   br label %bb7.split
 
 bb7.split:                                        ; preds = %bb7, %bb7.split1
@@ -670,9 +666,9 @@ bb9:                                              ; preds = %bb8
 
 bb10:                                             ; preds = %bb9
   store i16 %_51, i16* bitcast (<{ [2 x i8] }>* @_ZN10greenhouse3app5MOIST17h959cb7d1bbbb882bE to i16*), align 2
-  %35 = load i8, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E, i32 0, i32 0, i32 0), align 1
-  %36 = add i8 %35, 1
-  store i8 %36, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E, i32 0, i32 0, i32 0), align 1
+  %20 = load i8, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E, i32 0, i32 0, i32 0), align 1
+  %21 = add i8 %20, 1
+  store i8 %21, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE117h9ceb247d33710457E, i32 0, i32 0, i32 0), align 1
   %init2 = call i16 @_ZN10greenhouse10tempConfig17h27e1101ef9551221E()
   br label %bb11
 
@@ -681,48 +677,48 @@ bb11:                                             ; preds = %bb10
 
 bb12:                                             ; preds = %bb11
   %_56 = call float @_ZN10greenhouse8tempDegC17h8ab38ebf75b0d3b5E(i16 %val)
+  call void @atomic_end()
   br label %bb13
 
 bb13:                                             ; preds = %bb12
   store float %_56, float* bitcast (<{ [4 x i8] }>* @_ZN10greenhouse3app4TEMP17h50e2fb0948c59ac1E to float*), align 2
-  %37 = load i8, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE, i32 0, i32 0, i32 0), align 1
-  %38 = add i8 %37, 1
-  store i8 %38, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE, i32 0, i32 0, i32 0), align 1
+  %22 = load i8, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE, i32 0, i32 0, i32 0), align 1
+  %23 = add i8 %22, 1
+  store i8 %23, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app6SENSE217hdfe04dfa897f740aE, i32 0, i32 0, i32 0), align 1
   %_59 = load i16, i16* bitcast (<{ [2 x i8] }>* @_ZN10greenhouse3app5MOIST17h959cb7d1bbbb882bE to i16*), align 2
   %_60 = load float, float* bitcast (<{ [4 x i8] }>* @_ZN10greenhouse3app4TEMP17h50e2fb0948c59ac1E to float*), align 2
   call void @_ZN10greenhouse9storeData17h503a7bfc9f3bb8a0E(i16 %_59, float %_60, [0 x i16]* nonnull align 2 bitcast (<{ [10 x i8] }>* @_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E to [0 x i16]*), i16 5, [0 x float]* nonnull align 2 bitcast (<{ [20 x i8] }>* @_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE to [0 x float]*), i16 5)
-  call void @atomic_end()
   br label %bb14
 
 bb14:                                             ; preds = %bb13
-  %39 = call { i16, float } @_ZN10greenhouse7calcAvg17h19ed4c9ba7aa5a53E([0 x i16]* noalias nonnull readonly align 2 bitcast (<{ [10 x i8] }>* @_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E to [0 x i16]*), i16 5, [0 x float]* noalias nonnull readonly align 2 bitcast (<{ [20 x i8] }>* @_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE to [0 x float]*), i16 5)
-  store { i16, float } %39, { i16, float }* %moistTempAvgLocal, align 2
+  %24 = call { i16, float } @_ZN10greenhouse7calcAvg17h19ed4c9ba7aa5a53E([0 x i16]* noalias nonnull readonly align 2 bitcast (<{ [10 x i8] }>* @_ZN10greenhouse3app8MOISTURE17h8897597179d69b14E to [0 x i16]*), i16 5, [0 x float]* noalias nonnull readonly align 2 bitcast (<{ [20 x i8] }>* @_ZN10greenhouse3app11TEMPERATURE17hfb400d8a3f5f6cbaE to [0 x float]*), i16 5)
+  store { i16, float } %24, { i16, float }* %moistTempAvgLocal, align 2
   br label %bb15
 
 bb15:                                             ; preds = %bb14
   br label %bb16
 
 bb16:                                             ; preds = %bb15
-  %40 = bitcast { i16, float }* %moistTempAvgLocal to i16*
-  %_72 = load i16, i16* %40, align 2
+  %25 = bitcast { i16, float }* %moistTempAvgLocal to i16*
+  %_72 = load i16, i16* %25, align 2
   store i16 %_72, i16* getelementptr inbounds ({ i16, float }, { i16, float }* bitcast (<{ [6 x i8] }>* @_ZN10greenhouse3app3AVG17hdf1ec3a33bfd291dE to { i16, float }*), i32 0, i32 0), align 2
-  %41 = getelementptr inbounds { i16, float }, { i16, float }* %moistTempAvgLocal, i32 0, i32 1
-  %_73 = load float, float* %41, align 2
+  %26 = getelementptr inbounds { i16, float }, { i16, float }* %moistTempAvgLocal, i32 0, i32 1
+  %_73 = load float, float* %26, align 2
   store float %_73, float* getelementptr inbounds ({ i16, float }, { i16, float }* bitcast (<{ [6 x i8] }>* @_ZN10greenhouse3app3AVG17hdf1ec3a33bfd291dE to { i16, float }*), i32 0, i32 1), align 2
   call void @_ZN10greenhouse7compute17had6512ee685a036fE({ i16, float }* noalias readonly align 2 dereferenceable(6) bitcast (<{ [6 x i8] }>* @_ZN10greenhouse3app3AVG17hdf1ec3a33bfd291dE to { i16, float }*))
   br label %bb17
 
 bb17:                                             ; preds = %bb16
-  %42 = load i8, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app8COMPUTEC17h57840fa4e15d44e7E, i32 0, i32 0, i32 0), align 1
-  %43 = add i8 %42, 1
-  store i8 %43, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app8COMPUTEC17h57840fa4e15d44e7E, i32 0, i32 0, i32 0), align 1
+  %27 = load i8, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app8COMPUTEC17h57840fa4e15d44e7E, i32 0, i32 0, i32 0), align 1
+  %28 = add i8 %27, 1
+  store i8 %28, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app8COMPUTEC17h57840fa4e15d44e7E, i32 0, i32 0, i32 0), align 1
   call void @_ZN10greenhouse8sendData17h9f3f8485c57ddb59E({ i16, float }* noalias readonly align 2 dereferenceable(6) bitcast (<{ [6 x i8] }>* @_ZN10greenhouse3app3AVG17hdf1ec3a33bfd291dE to { i16, float }*))
   br label %bb18
 
 bb18:                                             ; preds = %bb17
-  %44 = load i8, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app5SENDC17h9bde036371f22910E, i32 0, i32 0, i32 0), align 1
-  %45 = add i8 %44, 1
-  store i8 %45, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app5SENDC17h9bde036371f22910E, i32 0, i32 0, i32 0), align 1
+  %29 = load i8, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app5SENDC17h9bde036371f22910E, i32 0, i32 0, i32 0), align 1
+  %30 = add i8 %29, 1
+  store i8 %30, i8* getelementptr inbounds (<{ [1 x i8] }>, <{ [1 x i8] }>* @_ZN10greenhouse3app5SENDC17h9bde036371f22910E, i32 0, i32 0, i32 0), align 1
   br label %bb3
 
 bb19:                                             ; preds = %bb5
@@ -809,6 +805,16 @@ bb1:                                              ; preds = %start
 }
 
 declare void @log_entry(i8*, i8*, i16)
+
+; Function Attrs: nounwind
+define void @atomic_end() unnamed_addr #0 {
+start:
+  call void @end_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: nounwind
 define internal void @_ZN10greenhouse9storeData17h503a7bfc9f3bb8a0E(i16 %m, float %t, [0 x i16]* nonnull align 2 %moisture.0, i16 %moisture.1, [0 x float]* nonnull align 2 %temperature.0, i16 %temperature.1) unnamed_addr #0 {
@@ -928,16 +934,6 @@ panic4:                                           ; preds = %bb4
 panic5:                                           ; preds = %bb11
   call void @_ZN4core9panicking18panic_bounds_check17h6e32b121061350d0E(i16 0, i16 %temperature.1, %"core::panic::Location"* noalias readonly align 2 dereferenceable(12) bitcast (<{ i8*, [10 x i8] }>* @alloc63 to %"core::panic::Location"*))
   unreachable
-}
-
-; Function Attrs: nounwind
-define void @atomic_end() unnamed_addr #0 {
-start:
-  call void @end_atomic()
-  br label %bb1
-
-bb1:                                              ; preds = %start
-  ret void
 }
 
 ; Function Attrs: nounwind

@@ -222,6 +222,7 @@ bb21.split2:                                      ; preds = %bb21
   br label %bb21.split
 
 bb21.split:                                       ; preds = %bb21, %bb21.split2
+  call void @atomic_start()
   %reading0 = call i16 @_ZN4tire16relativePressure17h00e38ad946681b37E(i16* noalias readonly align 2 dereferenceable(2) bitcast (<{ [2 x i8] }>* @_ZN4tire3app7SEED_NV17h016474e634f6f8dfE to i16*))
   br label %bb22
 
@@ -265,7 +266,6 @@ bb29:                                             ; preds = %bb28, %bb27
   br label %bb30
 
 bb30:                                             ; preds = %bb29
-  call void @atomic_start()
   call void @atomic_start()
   call void @_ZN4tire13acquireWindow17h334a29275df02eddE([3 x %threeAxis]* noalias nocapture sret dereferenceable(9) %currMotion, i16* align 2 dereferenceable(2) bitcast (<{ [2 x i8] }>* @_ZN4tire3app7SEED_NV17h016474e634f6f8dfE to i16*))
   call void @atomic_end()
@@ -554,7 +554,7 @@ bb7:                                              ; preds = %bb6, %bb2
 ; Function Attrs: nounwind
 define internal void @_ZN4tire16end_of_benchmark17hc49878f77d773b9aE(i16* noalias readonly align 2 dereferenceable(2) %urgent, i16* noalias readonly align 2 dereferenceable(2) %medium) unnamed_addr #0 {
 start:
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb1
 
 bb1:                                              ; preds = %start
@@ -570,7 +570,7 @@ bb2:                                              ; preds = %bb1
   br label %bb3
 
 bb3:                                              ; preds = %bb2
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb4
 
 bb4:                                              ; preds = %bb3
@@ -1172,7 +1172,7 @@ panic2:                                           ; preds = %bb11
 define internal void @_ZN4tire8sendData17hf159beeb0d41b37dE([0 x i8]* noalias nonnull readonly align 1 %data.0, i16 %data.1) unnamed_addr #0 {
 start:
   %_2.i = alloca %"core::str::{{impl}}::as_bytes::Slices", align 2
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb1
 
 bb1:                                              ; preds = %start
@@ -1201,7 +1201,7 @@ bb3:                                              ; preds = %bb2
   br label %bb4
 
 bb4:                                              ; preds = %bb3
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb5
 
 bb5:                                              ; preds = %bb4
@@ -1212,13 +1212,33 @@ bb5:                                              ; preds = %bb4
 declare void @gpioTwiddle() unnamed_addr #0
 
 ; Function Attrs: nounwind
-declare void @start_atomic() unnamed_addr #0
+define void @output_guard_start() unnamed_addr #0 {
+start:
+  call void @start_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: nounwind
 declare void @printf(i8*, ...) unnamed_addr #0
 
 ; Function Attrs: nounwind
+define void @output_guard_end() unnamed_addr #0 {
+start:
+  call void @end_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
+
+; Function Attrs: nounwind
 declare void @end_atomic() unnamed_addr #0
+
+; Function Attrs: nounwind
+declare void @start_atomic() unnamed_addr #0
 
 ; Function Attrs: nounwind readnone
 declare i1 @llvm.expect.i1(i1, i1) #2

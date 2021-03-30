@@ -524,7 +524,7 @@ bb3:                                              ; preds = %bb2
   br label %bb17
 
 bb4:                                              ; preds = %bb2
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb5
 
 bb5:                                              ; preds = %bb4
@@ -536,7 +536,7 @@ bb6:                                              ; preds = %bb5
   br label %bb7
 
 bb7:                                              ; preds = %bb6
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb8
 
 bb8:                                              ; preds = %bb7
@@ -609,13 +609,27 @@ bb1:                                              ; preds = %start
 }
 
 ; Function Attrs: nounwind
-declare void @start_atomic() unnamed_addr #0
+define void @output_guard_start() unnamed_addr #0 {
+start:
+  call void @start_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: nounwind
 declare void @printf(i8*, ...) unnamed_addr #0
 
 ; Function Attrs: nounwind
-declare void @end_atomic() unnamed_addr #0
+define void @output_guard_end() unnamed_addr #0 {
+start:
+  call void @end_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: nounwind
 declare void @msp_sleep(i16) unnamed_addr #0
@@ -641,6 +655,12 @@ start:
 bb1:                                              ; preds = %start
   ret void
 }
+
+; Function Attrs: nounwind
+declare void @end_atomic() unnamed_addr #0
+
+; Function Attrs: nounwind
+declare void @start_atomic() unnamed_addr #0
 
 define void @clear_isDirty() {
 entry:

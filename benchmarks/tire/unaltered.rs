@@ -200,9 +200,9 @@ fn sendData(data:&str) -> ()
 {
     //unsafe{ delay(30000)};
     //manually guard output
-    unsafe{start_atomic();}
+    unsafe{output_guard_start();}
     unsafe{printf(data.as_bytes().as_ptr());}
-    unsafe{end_atomic();}
+    unsafe{output_guard_end();}
     //println!("{}",data);
 }
 
@@ -210,10 +210,10 @@ fn end_of_benchmark(urgent:&u16, medium:&u16) -> ()
 {
     unsafe {
         //manually guard output
-        start_atomic();
+        output_guard_start();
         printf(b"Urgent: %l Medium: %l\n\0".as_ptr(),
         *urgent as u32, *medium as u32);
-        end_atomic();
+        output_guard_end();
     }
     //println!("This is the end of the Tire benchmark {}  {}\n\0", *urgent, *medium);
 }

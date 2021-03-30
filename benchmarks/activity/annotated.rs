@@ -268,13 +268,13 @@ fn print_stats(stats:&stats_t) -> ()
 
     unsafe {
 	//if not u32, rust throws errors. MUST USE LONG NOT UNSIGNED!!!!
-	start_atomic();
+	output_guard_start();
 	printf(b"stats: s %l (%lu%%) m %l (%l%%) sum/tot %l/%l: %c\r\n\0".as_ptr(),
 	       stats.stationaryCount as u32, resultStationaryPct as u32,
            stats.movingCount as u32, resultMovingPct as u32,
            stats.totalCount as u32, sum as u32,
                if sum == stats.totalCount && sum == SAMPLES_TO_COLLECT { 'V'} else {'X'});
-	end_atomic();
+	output_guard_end();
 	
     }
 }
@@ -345,9 +345,9 @@ fn recognize(model:&model_t, seed:&mut u16) -> ()
 fn end_of_benchmark() -> ()
 {
     unsafe {
-//	start_atomic();
+//	output_guard_start();
 //	printf(b"This is the end of the AR benchmark\r\n\0".as_ptr());
-//	end_atomic();
+//	output_guard_end();
     }
     //exit(0);
     //for measuring runtime, pulse twice

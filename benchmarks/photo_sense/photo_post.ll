@@ -465,7 +465,7 @@ bb3:                                              ; preds = %bb2
   ]
 
 bb4:                                              ; preds = %bb3
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb9
 
 bb5:                                              ; preds = %bb3
@@ -493,7 +493,7 @@ bb10:                                             ; preds = %bb9
   br label %bb11
 
 bb11:                                             ; preds = %bb10
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb12
 
 bb12:                                             ; preds = %bb11
@@ -558,7 +558,14 @@ bb7:                                              ; preds = %bb6, %bb2
 }
 
 ; Function Attrs: nounwind
-declare void @start_atomic() unnamed_addr #0
+define void @output_guard_start() unnamed_addr #0 {
+start:
+  call void @start_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: nounwind
 define internal i16 @_ZN5photo13average_light17h8e850ad0930feb73E(i16 %count) unnamed_addr #0 {
@@ -636,6 +643,16 @@ bb8:                                              ; preds = %bb7
 declare void @gpioTwiddle() unnamed_addr #0
 
 ; Function Attrs: nounwind
+define void @output_guard_end() unnamed_addr #0 {
+start:
+  call void @end_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
+
+; Function Attrs: nounwind
 declare void @end_atomic() unnamed_addr #0
 
 ; Function Attrs: nounwind
@@ -658,6 +675,9 @@ start:
 bb1:                                              ; preds = %start
   ret void
 }
+
+; Function Attrs: nounwind
+declare void @start_atomic() unnamed_addr #0
 
 ; Function Attrs: inlinehint nounwind
 define internal zeroext i1 @"_ZN4core3cmp5impls55_$LT$impl$u20$core..cmp..PartialOrd$u20$for$u20$u16$GT$2lt17h1444c976cc58b097E"(i16* noalias readonly align 2 dereferenceable(2) %self, i16* noalias readonly align 2 dereferenceable(2) %other) unnamed_addr #1 {

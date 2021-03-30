@@ -665,7 +665,7 @@ bb2:                                              ; preds = %bb1
   %7 = getelementptr inbounds %stats_t, %stats_t* %stats, i32 0, i32 3
   %_14 = load i16, i16* %7, align 2
   %sum = add i16 %_13, %_14
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb3
 
 bb3:                                              ; preds = %bb2
@@ -721,7 +721,7 @@ bb11:                                             ; preds = %bb10, %bb9
   br label %bb12
 
 bb12:                                             ; preds = %bb11
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb13
 
 bb13:                                             ; preds = %bb12
@@ -1814,7 +1814,27 @@ bb6:                                              ; preds = %bb5
 declare void @start_atomic() unnamed_addr #0
 
 ; Function Attrs: nounwind
+define void @output_guard_start() unnamed_addr #0 {
+start:
+  call void @start_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
+
+; Function Attrs: nounwind
 declare void @printf(i8*, ...) unnamed_addr #0
+
+; Function Attrs: nounwind
+define void @output_guard_end() unnamed_addr #0 {
+start:
+  call void @end_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: inlinehint nounwind
 define internal zeroext i1 @"_ZN4core3cmp5impls55_$LT$impl$u20$core..cmp..PartialOrd$u20$for$u20$u16$GT$2lt17hb538d7d011c40015E"(i16* noalias readonly align 2 dereferenceable(2) %self, i16* noalias readonly align 2 dereferenceable(2) %other) unnamed_addr #2 {

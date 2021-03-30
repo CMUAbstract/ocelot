@@ -772,7 +772,7 @@ start:
   %iter = alloca { i16, i16 }, align 2
   %_17 = alloca { i16, i16 }, align 2
   %0 = alloca {}, align 1
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb1
 
 bb1:                                              ; preds = %start
@@ -788,11 +788,11 @@ bb2:                                              ; preds = %bb1
   br label %bb3
 
 bb3:                                              ; preds = %bb2
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb4
 
 bb4:                                              ; preds = %bb3
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb5
 
 bb5:                                              ; preds = %bb4
@@ -864,7 +864,7 @@ bb15:                                             ; preds = %bb9
   br label %bb16
 
 bb16:                                             ; preds = %bb15
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb17
 
 bb17:                                             ; preds = %bb16
@@ -876,7 +876,7 @@ bb18:                                             ; preds = %bb17
   br label %bb24
 
 bb19:                                             ; preds = %bb17
-  call void @start_atomic()
+  call void @output_guard_start()
   br label %bb20
 
 bb20:                                             ; preds = %bb19
@@ -888,7 +888,7 @@ bb21:                                             ; preds = %bb20
   br label %bb22
 
 bb22:                                             ; preds = %bb21
-  call void @end_atomic()
+  call void @output_guard_end()
   br label %bb23
 
 bb23:                                             ; preds = %bb22
@@ -903,16 +903,36 @@ panic:                                            ; preds = %bb12
 }
 
 ; Function Attrs: nounwind
-declare void @start_atomic() unnamed_addr #0
+define void @output_guard_start() unnamed_addr #0 {
+start:
+  call void @start_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: nounwind
 declare void @printf(i8*, ...) unnamed_addr #0
 
 ; Function Attrs: nounwind
-declare void @end_atomic() unnamed_addr #0
+define void @output_guard_end() unnamed_addr #0 {
+start:
+  call void @end_atomic()
+  br label %bb1
+
+bb1:                                              ; preds = %start
+  ret void
+}
 
 ; Function Attrs: nounwind readnone
 declare i1 @llvm.expect.i1(i1, i1) #2
+
+; Function Attrs: nounwind
+declare void @end_atomic() unnamed_addr #0
+
+; Function Attrs: nounwind
+declare void @start_atomic() unnamed_addr #0
 
 ; Function Attrs: inlinehint nounwind
 define internal zeroext i1 @"_ZN4core3cmp5impls55_$LT$impl$u20$core..cmp..PartialOrd$u20$for$u20$u16$GT$2lt17hd6e7e8871cf4fb90E"(i16* noalias readonly align 2 dereferenceable(2) %self, i16* noalias readonly align 2 dereferenceable(2) %other) unnamed_addr #1 {

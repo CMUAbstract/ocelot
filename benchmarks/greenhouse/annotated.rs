@@ -50,9 +50,9 @@ fn adcSample (count:u16) -> u16
 {
     //use printf as it is expensive, like sensor
     unsafe{
-    start_atomic();
+    output_guard_start();
     printf(b"adc\r\n\0".as_ptr());
-	end_atomic();}
+	output_guard_end();}
     return 1000 + (count % 17)
 }
 
@@ -60,9 +60,9 @@ fn tempDegC (count:u16) -> f32
 {
     //use printf as it is expensive, like sensor
     unsafe{
-    start_atomic();
+    output_guard_start();
     printf(b"temp\r\n\0".as_ptr());
-	end_atomic();
+	output_guard_end();
     }
     return 4.7 + count as f32;
 }
@@ -187,10 +187,10 @@ fn app() -> ()
 	    moistTempAvg.m = moistTempAvgLocal.m;
             moistTempAvg.t = moistTempAvgLocal.t;
             /*unsafe {
-		start_atomic();
+		output_guard_start();
                 printf(b"Moisture: %l Moist avg.:%l Temp: %l MoistTempAvg: %l overflow %l %l %l \n\r\0".as_ptr(),
                        *moist as u32, moistTempAvg.m as u32, *temp as f64, moistTempAvg.t as f64, 0, 0, 0);
-		end_atomic();
+		output_guard_end();
             }*/
             compute(moistTempAvg);
             *computeCount+=1;
@@ -204,13 +204,13 @@ fn app() -> ()
 	    //delay(5);
         }
 	unsafe{
-	    /*start_atomic();
+	    /*output_guard_start();
 	    unsafe{printf(b"clear buff\r\n\0".as_ptr());}
             unsafe {
 		printf(b"Counts: SenseOne:%l SenseTwo: %l Compute: %l Send: %l\n\r\0".as_ptr(),
                        *senseCount1 as u32, *senseCount2 as u32, *computeCount as u32, *sendCount as u32);
             }
-	    end_atomic();*/
+	    output_guard_end();*/
 	    unsafe{gpioTwiddle()};
             unsafe{gpioTwiddle()};
 	}

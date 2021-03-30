@@ -58,12 +58,12 @@ type Log = [Index;BLOCK_SIZE as usize];
 fn print_log(log:&Log, log_count:&u16, log_sample_count:&u16)
 {
     unsafe{
-	start_atomic();
+	output_guard_start();
 	printf(b"rate: samples/block: %l/%l\r\n\0".as_ptr(), *log_sample_count as u32, *log_count as u32);
 	//printf(b"atomic depth: %l\r\n\0".as_ptr(), atomic_depth as u32);
-	end_atomic();
+	output_guard_end();
 	//	BLOCK_PRINTF("compressed block:\r\n");
-	start_atomic();
+	output_guard_start();
 	for i in 0..*log_count {
 	    //
 	    printf(b"%04x \0".as_ptr(), log[i as usize] as u32);
@@ -74,15 +74,15 @@ fn print_log(log:&Log, log_count:&u16, log_sample_count:&u16)
 	    //	if ((log->count & (8 - 1)) != 0){
 	}
 	printf(b"\r\n\0".as_ptr());
-	end_atomic();
+	output_guard_end();
     }
     
     if *log_sample_count != 353 {
 	unsafe{
-	start_atomic();
+	output_guard_start();
 	unsafe{printf(b"print log exit tripped!\r\n\0".as_ptr())}
 	//exit(0);
-	    end_atomic();
+	    output_guard_end();
 	}
     }
     
