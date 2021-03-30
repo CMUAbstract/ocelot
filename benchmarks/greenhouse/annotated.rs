@@ -67,7 +67,7 @@ fn tempDegC (count:u16) -> f32
     return 4.7 + count as f32;
 }
 
-//GUIDE:This is neessary! It causes everything to be visible to C (TODO make cleaner)
+//GUIDE:This is neessary! It causes everything to be visible to C 
 #[no_mangle]
 pub extern "C" fn _entry() {
     app();
