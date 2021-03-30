@@ -286,7 +286,7 @@ fn app() -> ()
             //get a series of fresh and consistent readings, to check that 
             //it's a burst tire, not just, eg. a cold day
                 //Outer-most inferred region for the fresh and consistent annotations
-                // at lines 297 and 299 begins here
+                // at lines 299 and 301 begins here
                 let reading0 = relativePressure(nv_seed);
 
 		        let reading1 = relativePressure(nv_seed);
