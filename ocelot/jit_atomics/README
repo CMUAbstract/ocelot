@@ -1,0 +1,1 @@
+Rustic runtime: jit + atomic runtime for use with rust applications. Contains makefile for building with the maker build system: https://github.com/CMUAbstract/maker
