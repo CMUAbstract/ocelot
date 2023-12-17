@@ -1,2 +1,3 @@
 .vscode
 ocelot/AtomicRegionInference/build
+benchmarks/ctests/*.ll

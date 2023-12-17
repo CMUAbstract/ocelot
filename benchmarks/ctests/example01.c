@@ -1,8 +1,5 @@
 #include <stdio.h>
 
-// int x;
-// int y;
-
 void Fresh(int x) { printf("Fresh\n"); }
 void Consistent(int x, int id) { printf("Consistent\n"); }
 
