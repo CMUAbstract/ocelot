@@ -1,857 +1,1000 @@
 #include "include/TaintTracker.h"
 
+// Main dataflow function to construct map of store (TODO: not just stores) insts to vars (inputs?) they depend on
+inst_insts_map buildInputs(Module* M) {
+#if DEBUG
+  errs() << "=== buildInputs ===\n";
+#endif
 
-/*Main DataFlow function to construct map of store insts to vars they depend on*/
-inst_insts_map buildInputs(Module* m) 
-{
-  inst_vec inputs = findInputInsts(m);
-  inst_insts_map taintedDecl;
-  inst_vec promoted_inputs;
+  inst_vec inputInsts = findInputInsts(M);
+  inst_insts_map taintedInsts;
+  inst_vec promotedInputs;
 
-  for (Instruction* iOp : inputs) {
-    #if DEBUG
-    errs() << "Starting input: " << *iOp <<"\n";
-    #endif
-    //don't forget to add self to map
-    taintedDecl[iOp].insert(iOp);
-    queue<Value*> toExplore;
-    toExplore.push(iOp);
+  for (auto inputInst : inputInsts) {
+#if DEBUG
+    errs() << "[Loop inputInst] orig input: " << *inputInst << "\n";
+#endif
 
-    //iterate until no more interproc flows found
-    while(!toExplore.empty()) {
-      
-      Value* currVal = toExplore.front();
-      if (currVal == NULL) {
-        continue;
-      }
+    // Add self to map
+    taintedInsts[inputInst].insert(inputInst);
+    std::queue<Value*> toExplore;
+#if DEBUG
+    errs() << "[Loop inputInst] Add orig input to toExplore\n";
+#endif
+    toExplore.push(inputInst);
+
+#if DEBUG
+    errs() << "[Loop inputInst] Explore flows from orig input\n";
+#endif
+
+    // Iterate until no more inter-proc flows found
+    while (!toExplore.empty()) {
+#if DEBUG
+      errs() << "=== Loop toExplore ===\n";
+#endif
+      auto* curVal = toExplore.front();
+      toExplore.pop();
+
+      if (curVal == NULL) continue;
+
+#if DEBUG
+      errs() << "[Loop toExplore] cur inst: " << *curVal << "\n";
+#endif
 
       val_vec interProcFlows;
-      toExplore.pop();
-      if (currVal == iOp) {
-        interProcFlows = traverseLocal(currVal, iOp, &taintedDecl, nullptr);
-        for (Value* vipf : interProcFlows) {
-          if(Instruction* iipf = dyn_cast<Instruction>(vipf)) {
-            if (CallInst* anno_check = dyn_cast<CallInst>(iipf)){
-                    //we delete these later... creates problems
-                    if (anno_check->getName().contains("Fresh") || 
-                    anno_check->getName().contains("Consistent") ) {
-                      continue;
-                    }
-                  }
-            taintedDecl[iipf].insert(iOp);
+      if (curVal == inputInst) {
+#if DEBUG
+        errs() << "[Loop toExplore] cur inst = orig input\n";
+        errs() << "[Loop toExplore] Call traverseLocal with cur inst (tainted), orig input (srcInput), caller (none)\n";
+#endif
+        interProcFlows = traverseLocal(curVal, inputInst, &taintedInsts, nullptr);
+#if DEBUG
+        errs() << "[Loop toExplore] [cur inst = orig input] Inspect interProcFlows:\n";
+#endif
+        for (auto* vipf : interProcFlows) {
+          if (auto* iipf = dyn_cast<Instruction>(vipf)) {
+            if (auto* anno_check = dyn_cast<CallInst>(iipf)) {
+              // We delete these later... creates problems
+              if (isAnnot(anno_check->getName())) continue;
+            }
+
+#if DEBUG
+            errs() << "Adding orig input (" << *inputInst << ") to set at " << *iipf << "\n";
+#endif
+            taintedInsts[iipf].insert(inputInst);
           }
         }
-      } else if (isa<CallInst>(currVal)) {
-        //note it will not be iop, even though iop is a call
-        //this case handles both returns and pbref
-        
-        promoted_inputs.push_back(dyn_cast<CallInst>(currVal));
-        Value* next = toExplore.front();
-        toExplore.pop();
-        //if the next is a return, this was a return flow
-        //otherwise, if it's an arg, this was pbref
-        if (isa<ReturnInst>(next)) {
-         interProcFlows =  traverseLocal(currVal, dyn_cast<CallInst>(currVal), &taintedDecl, nullptr);
-          for (Value* vipf : interProcFlows) {
-            if(Instruction* iipf = dyn_cast<Instruction>(vipf)) {
+      } else if (isa<CallInst>(curVal)) {
+#if DEBUG
+        errs() << "[Loop toExplore] cur inst = CallInst\n";
+#endif
+        // Note it will not be iop, even though iop is a call
+        // This case handles both returns and pbref
 
-              //don't add self 
-              if (currVal == vipf) {
+        promotedInputs.push_back(dyn_cast<CallInst>(curVal));
+        auto* next = toExplore.front();
+        toExplore.pop();
+        // If the next is a return, this was a return flow
+        // Otherwise, if it's an arg, this was pbref
+        //? pbref - pass by reference?
+        if (isa<ReturnInst>(next)) {
+#if DEBUG
+          errs() << "[Loop toExplore] cur inst next = Return inst (return flow)\n";
+#endif
+          interProcFlows = traverseLocal(curVal, dyn_cast<CallInst>(curVal), &taintedInsts, nullptr);
+          for (Value* vipf : interProcFlows) {
+            if (Instruction* iipf = dyn_cast<Instruction>(vipf)) {
+              // don't add self
+              if (curVal == vipf) {
                 continue;
               }
-              if (CallInst* anno_check = dyn_cast<CallInst>(iipf)){
-                    //we delete these later... creates problems
-                    if (anno_check->getName().contains("Fresh") || 
-                    anno_check->getName().contains("Consistent") ) {
-                      continue;
-                    }
-                  }
-              taintedDecl[iipf].insert(dyn_cast<CallInst>(currVal));
+              if (CallInst* anno_check = dyn_cast<CallInst>(iipf)) {
+                // we delete these later... creates problems
+                if (anno_check->getName().contains("Fresh") ||
+                    anno_check->getName().contains("Consistent")) {
+                  continue;
+                }
+              }
+              taintedInsts[iipf].insert(dyn_cast<CallInst>(curVal));
             }
-          }          
+          }
         } else if (isa<Argument>(next)) {
-          //grab the para corresponding to the argument
+#if DEBUG
+          errs() << "[Loop toExplore] cur inst next = Argument (pbref)\n";
+#endif
+          // Grab the para corresponding to the argument
           int index = -1;
           int i = 0;
-          CallInst* ci = dyn_cast<CallInst>(currVal);
-          
+          CallInst* ci = dyn_cast<CallInst>(curVal);
 
-          if (ci->getCalledFunction() == NULL) {
+          if (ci->getCalledFunction() == NULL) continue;
+          if (ci->getCalledFunction()->empty()) continue;
+
+#if DEBUG
+          errs() << "exploring function " << ci->getCalledFunction()->getName() << "\n";
+#endif
+
+          for (auto& arg : ci->getCalledFunction()->args()) {
+            // errs() <<"arg is "<<arg<<"\n";
+            if (dyn_cast<Value>(&arg) != next) {
+              i++;
+            } else {
+              index = i;
+            }
+          }
+          if (index == -1) {
+#if DEBUG
+            errs() << "couldn't find pass by ref " << *next << "\n";
+#endif
             continue;
           }
-          if (ci->getCalledFunction()->empty()) {
-            continue;
-          }
 
-          #if DEBUG
-            errs() << "exploring function " <<  ci->getCalledFunction()->getName() << "\n";
-          #endif
-         
-          for (auto& arg : ci->getCalledFunction()->args()){
-        	//errs() <<"arg is "<<arg<<"\n";
-          	if(dyn_cast<Value>(&arg)!=next) {
-          	  i++;
-          	} else {
-	            index = i;
-          	}
-	 
+          Value* tArg = ci->getArgOperand(index);
+          // errs() << "arg_op: "<< *arg_op<<"\n";
+          // check if reference is part of an array
+          if (GEPOperator* gep = dyn_cast<GEPOperator>(tArg)) {
+            tArg = gep->getPointerOperand();
           }
-          if(index == -1){
-            #if DEBUG
-          	errs() << "couldn't find pass by ref " << *next << "\n";
-            #endif
-          	continue;
-          }
-        
-	        Value* tArg = ci->getArgOperand(index);
-	        //errs() << "arg_op: "<< *arg_op<<"\n";
-	        //check if reference is part of an array
-	        if (GEPOperator* gep = dyn_cast<GEPOperator>(tArg)) {
-	          tArg = gep->getPointerOperand();
-	        } 
-          //if bitcast inst,
-          else if (BitCastInst* bci = dyn_cast<BitCastInst>(tArg)){
+          // if bitcast inst,
+          else if (BitCastInst* bci = dyn_cast<BitCastInst>(tArg)) {
             tArg = bci->getOperand(0);
           }
-          //need to actually find the first use *after* the callInst
-          Instruction* fstUse = ptrAfterCall(tArg,ci);
-          if (fstUse!=nullptr && fstUse!=tArg) {
-            #if DEBUG
+          // need to actually find the first use *after* the callInst
+          Instruction* fstUse = ptrAfterCall(tArg, ci);
+          if (fstUse != nullptr && fstUse != tArg) {
+#if DEBUG
             errs() << "First use after call: " << *fstUse << "\n";
-            #endif
-            //if the first use is itself a callinst, then treat as a tainted para case, 
+#endif
+            // if the first use is itself a callinst, then treat as a tainted para case,
             val_vec visited_fstuse;
             visited_fstuse.push_back(ci);
-      
-            while (CallInst* ci_fstuse = dyn_cast<CallInst>(fstUse) ) {
-              //already visited, as in loop
-              if (find(visited_fstuse.begin(),visited_fstuse.end(), ci_fstuse)
-              !=visited_fstuse.end()) {
-                //no non-call uses
+
+            while (CallInst* ci_fstuse = dyn_cast<CallInst>(fstUse)) {
+              // already visited, as in loop
+              if (find(visited_fstuse.begin(), visited_fstuse.end(), ci_fstuse) != visited_fstuse.end()) {
+                // no non-call uses
                 fstUse = nullptr;
                 break;
               }
-              if (CallInst* anno_check = dyn_cast<CallInst>(ci_fstuse)){
-                    //we delete these later... creates problems
-                    if (anno_check->getName().contains("Fresh") || 
-                    anno_check->getName().contains("Consistent") ) {
-                      continue;
-                    }
-                  }
+              if (CallInst* anno_check = dyn_cast<CallInst>(ci_fstuse)) {
+                // we delete these later... creates problems
+                if (anno_check->getName().contains("Fresh") ||
+                    anno_check->getName().contains("Consistent")) {
+                  continue;
+                }
+              }
               visited_fstuse.push_back(ci_fstuse);
 
-              unsigned int arg_num = ci_fstuse->getNumArgOperands();
-          
+              unsigned int arg_num = ci_fstuse->arg_size();
+
+#if DEBUG
+              errs() << "[Loop customUsers] Find index of tainted arg:\n";
+#endif
               // Find the index of the tainted argument
-              for (unsigned int i = 0; i < arg_num; i++){
-                #if DEBUG
-                  errs() << "DEBUG: comparing "<< *tArg <<" and " << *(ci_fstuse->getArgOperand(i))<<"\n";
-                #endif
-                if(ci_fstuse->getArgOperand(i)==tArg) {
-                  #if DEBUG
-                   // errs() << "DEBUG: pushing arg of "<< calledFunc->getName() <<"\n";
-                  #endif
+              for (unsigned int i = 0; i < arg_num; i++) {
+                // TODO
+#if DEBUG
+                errs() << "comparing " << *tArg << " and " << *(ci_fstuse->getArgOperand(i)) << "\n";
+#endif
+                if (ci_fstuse->getArgOperand(i) == tArg) {
+#if DEBUG
+                  // errs() << "pushing arg of "<< calledFunc->getName() <<"\n";
+#endif
                   interProcFlows.push_back((ci_fstuse->getCalledFunction()->arg_begin() + i));
-                  //MUST also push back the call inst.
+                  // MUST also push back the call inst.
                   interProcFlows.push_back(ci_fstuse);
-                  //and the srcOp
+                  // and the srcOp
                   interProcFlows.push_back(ci);
-                  
+
                   break;
                 }
               }
-              //find next local use 
-              //promoted_inputs.push_back(ci);
-              taintedDecl[ci_fstuse].insert(ci);
-              fstUse  = ptrAfterCall(tArg,ci_fstuse);
+              // find next local use
+              // promoted_inputs.push_back(ci);
+              taintedInsts[ci_fstuse].insert(ci);
+              fstUse = ptrAfterCall(tArg, ci_fstuse);
 
               if (fstUse == nullptr) {
                 break;
               }
-            } 
-            //re nullptr check
-            if (fstUse!=nullptr) {  
-              interProcFlows =  traverseLocal(fstUse, dyn_cast<CallInst>(currVal), &taintedDecl, nullptr);
+            }
+            // re nullptr check
+            if (fstUse != nullptr) {
+              interProcFlows = traverseLocal(fstUse, dyn_cast<CallInst>(curVal), &taintedInsts, nullptr);
               for (Value* vipf : interProcFlows) {
-                if(Instruction* iipf = dyn_cast<Instruction>(vipf)) {
-                  if (CallInst* anno_check = dyn_cast<CallInst>(iipf)){
-                    //we delete these later... creates problems
-                    if (anno_check->getName().contains("Fresh") || 
-                    anno_check->getName().contains("Consistent") ) {
+                if (Instruction* iipf = dyn_cast<Instruction>(vipf)) {
+                  if (CallInst* anno_check = dyn_cast<CallInst>(iipf)) {
+                    // we delete these later... creates problems
+                    if (anno_check->getName().contains("Fresh") ||
+                        anno_check->getName().contains("Consistent")) {
                       continue;
                     }
                   }
-                  taintedDecl[iipf].insert(dyn_cast<CallInst>(currVal));
+                  taintedInsts[iipf].insert(dyn_cast<CallInst>(curVal));
                 }
               }
             }
-          }  
+          }
         }
-      } else if (isa<Argument>(currVal)) {
-        #if DEBUG
-          	errs() << "exploring tainted arg " << *currVal << "\n";
-          #endif
-        Instruction* caller = dyn_cast<CallInst>(toExplore.front());
-        
-        //promoted_inputs.push_back(caller);
+      } else if (isa<Argument>(curVal)) {
+#if DEBUG
+        errs() << "[Loop toExplore] cur inst = Argument (tainted arg)\n";
+#endif
+
+        auto* caller = dyn_cast<CallInst>(toExplore.front());
         toExplore.pop();
-        Instruction* innerSrcOp = dyn_cast<Instruction>(toExplore.front());
+#if DEBUG
+        errs() << "[Loop toExplore] Caller: " << *caller << "\n";
+#endif
+        // promoted_inputs.push_back(caller);
+
+        auto* innerInputInst = dyn_cast<Instruction>(toExplore.front());
         toExplore.pop();
-        interProcFlows = traverseLocal(currVal, innerSrcOp, &taintedDecl, caller);
-             
-              for (Value* vipf : interProcFlows) {
-                if(Instruction* iipf = dyn_cast<Instruction>(vipf)) {
-                  if (CallInst* anno_check = dyn_cast<CallInst>(iipf)){
-                    //we delete these later... creates problems
-                    if (anno_check->getName().contains("Fresh") || 
-                    anno_check->getName().contains("Consistent") ) {
-                      continue;
-                    }
-                  }
-                  taintedDecl[iipf].insert(innerSrcOp);
-                }
-              }
-      }//end elsif chain
-      #if DEBUG
-        errs() << "Finished iteration\n";
-      #endif
-      for (Value* item : interProcFlows) {
-        if(item != NULL) {
-          //errs() <<"pushing item " << *item <<"\n";
+#if DEBUG
+        errs() << "[Loop toExplore] orig input: " << *innerInputInst << "\n";
+        errs() << "[Loop toExplore] Call traverseLocal with cur inst (tainted), orig input (srcInput), caller\n";
+#endif
+
+        interProcFlows = traverseLocal(curVal, innerInputInst, &taintedInsts, caller);
+
+#if DEBUG
+        errs() << "[Loop toExplore] Inspect interProcFlows:\n";
+#endif
+        for (auto* vipf : interProcFlows) {
+          if (auto* iipf = dyn_cast<Instruction>(vipf)) {
+            if (auto* anno_check = dyn_cast<CallInst>(iipf)) {
+              // We delete these later... creates problems
+              if (isAnnot(anno_check->getName())) continue;
+            }
+            taintedInsts[iipf].insert(innerInputInst);
+#if DEBUG
+            errs() << "Adding innerInputInst (" << *innerInputInst << ") to set at " << *iipf << "\n";
+#endif
+          }
+        }
+      }  // end elsif chain
+
+      for (auto* item : interProcFlows) {
+        if (item != NULL) {
+#if DEBUG
+          errs() << "Add to toExplore: " << *item << "\n";
+#endif
           toExplore.push(item);
         } else {
           errs() << "ERROR: encountered null interproc item\n";
         }
       }
-    }//end while queue not empty
-  }//end for all iOp
-  
-  return taintedDecl;
+
+#if DEBUG
+      errs() << "*** Loop toExplore ***\n";
+#endif
+    }  // end while queue not empty
+  }    // end for all inputInsts
+
+#if DEBUG
+  errs() << "*** buildInputs ***\n";
+#endif
+  return taintedInsts;
 }
 
-val_vec traverseLocal(Value* tainted, Instruction* srcOp, inst_insts_map* iInfo, Instruction* caller)
-{
-  val_vec interProcSinks;
-  queue<Value*> localDeps;
+val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* taintedInsts, Instruction* caller) {
+#if DEBUG
+  errs() << "=== traverseLocal ===\n";
+#endif
 
+  val_vec interProcSinks;
+  std::queue<Value*> localDeps;
+
+#if DEBUG
+  errs() << "Add cur inst to localDeps\n";
+#endif
   localDeps.push(tainted);
-  while(!localDeps.empty()) {
-    Value* currVal = localDeps.front();
+  while (!localDeps.empty()) {
+#if DEBUG
+    errs() << "=== Loop localDeps ===\n";
+#endif
+    auto* curVal = localDeps.front();
     localDeps.pop();
-     val_vec customUsers;
-    if (StoreInst* si = dyn_cast<StoreInst>(currVal)) {    
-      //add the pointer to deps, as stores have no uses
-      //Add info on the store to the map
-      if(iInfo->find(si)!=iInfo->end()) {
-        if (find(iInfo->at(si).begin(), iInfo->at(si).end(), srcOp)!=iInfo->at(si).end()) {
-          continue;
-        } else {
-          iInfo->at(si).insert(srcOp);
-        }
+#if DEBUG
+    errs() << "[Loop localDeps] cur inst: " << *curVal << "\n";
+#endif
+    val_vec customUsers;
+    if (auto* si = dyn_cast<StoreInst>(curVal)) {
+#if DEBUG
+      errs() << "[Loop localDeps] cur inst = StoreInst\n";
+#endif
+      // Add the pointer to deps, as stores have no uses
+      // Add info on the store to the map
+      if (taintedInsts->find(si) != taintedInsts->end()) {
+        auto insts = taintedInsts->at(si);
+        if (std::find(insts.begin(), insts.end(), srcInput) != insts.end()) continue;
+        taintedInsts->at(si).insert(srcInput);
       } else {
-        set<Instruction*> seti;
-        seti.insert(srcOp);
-        iInfo->emplace(si, seti);
+        std::set<Instruction*> seti;
+        seti.insert(srcInput);
+        taintedInsts->emplace(si, seti);
       }
-      #if DEBUG
-        errs() << " adding to map " << *srcOp << " for " << *si << "\n";
-      #endif
-      //See if it is (or aliases?) one of the function arguments
-      for (Argument& arg : si->getFunction()->args()) {
-        Value* to_comp = si->getPointerOperand()->stripPointerCasts();
-        #if DEBUG
-        errs() << " PBRef comp: " << *to_comp << " and " << arg << "\n";
-        #endif
-        if (to_comp== &arg) {
-          //if taint came from inside any callsite is potentially tainted
+#if DEBUG
+      errs() << "[Loop localDeps] Adding orig input (" << *srcInput << ") to set at cur inst (" << *si << ")\n";
+#endif
+      // See if it is (or aliases?) one of the function arguments (PBRef comp)
+      for (auto& arg : si->getFunction()->args()) {
+        auto* storePtr = si->getPointerOperand()->stripPointerCasts();
+#if DEBUG
+        errs() << "[Loop localDeps] Is ptr being stored to (" << *storePtr << ") = fun arg (" << arg << ")\n";
+#endif
+        if (storePtr == &arg) {
+          // if taint came from inside any callsite is potentially tainted
           if (caller == nullptr) {
-            for(Value* calls : si->getFunction()->users()) {
+            for (auto calls : si->getFunction()->users()) {
               interProcSinks.push_back(calls);
               interProcSinks.push_back(dyn_cast<Value>(&arg));
-              if (Instruction* key = dyn_cast<Instruction>(calls)) {
-               //check to make sure not already visited
-             //   iInfo->at(key).insert(srcOp);
-                
+              if (auto key = dyn_cast<Instruction>(calls)) {
+                // check to make sure not already visited
+                //   taintedInsts->at(key).insert(srcOp);
               }
             }
           } else {
-          //otherwise, just the caller's
+            // otherwise, just the caller's
             interProcSinks.push_back(caller);
             interProcSinks.push_back(dyn_cast<Value>(&arg));
-            if (Instruction* key = dyn_cast<Instruction>(caller)) {
-
-
-              //check to make sure not already visited
-      //        iInfo->at(key).insert(srcOp);
-              
+            if (auto key = dyn_cast<Instruction>(caller)) {
+              // check to make sure not already visited
+              //        taintedInsts->at(key).insert(srcOp);
             }
           }
         }
       }
-      //construct "users" of the store
-      #if DEBUG
-        errs() << "DEBUG: Store users\n";
-      #endif
-      //add in loads that are reachable from the tainted store.
-      Value* ptr = si->getPointerOperand();
-      //if bci, get the operand, as that's the useful ptr
-      if (BitCastInst* bciptr = dyn_cast<BitCastInst>(ptr) ){
-        ptr = bciptr->getOperand(0);
-      }
-      for(Value* use : ptr->users()){
-        if (Instruction* useOfStore = dyn_cast<Instruction>(use)) {
-          #if DEBUG
-            errs() << "DEBUG: checking use " << *useOfStore << "\n";
-          #endif
+      // Construct "users" of the store
+#if DEBUG
+      errs() << "[Loop localDeps] Add users (loads) of store to customUsers:\n";
+#endif
+      // Add in loads that are reachable from the tainted store.
+      auto* ptr = si->getPointerOperand();
+      // If bci, get the operand, as that's the useful ptr
+      if (auto bciptr = dyn_cast<BitCastInst>(ptr)) ptr = bciptr->getOperand(0);
+      for (auto* use : ptr->users()) {
+        if (auto* useOfStore = dyn_cast<Instruction>(use)) {
           if (storePrecedesUse(useOfStore, si)) {
+#if DEBUG
+            errs() << "[Loop Store Users] store precedes this use, add:" << *useOfStore << "\n";
+#endif
             customUsers.push_back(useOfStore);
           }
         }
       }
-      //update currVal to be the pointer
-      currVal = si->getPointerOperand();
+      // Update curVal to be the pointer
+      curVal = si->getPointerOperand();
 
-      //if it's a gepi, see if there are others that occur afterwards 
+      // If it's a gepi, see if there are others that occur afterwards
       if (isa<GetElementPtrInst>(si->getPointerOperand())) {
         inst_vec matching = couldMatchGEPI(dyn_cast<GetElementPtrInst>(si->getPointerOperand()));
-        for (Instruction* item : matching) {
+        for (auto item : matching) {
           localDeps.push(item);
         }
-        //check pbref, need to compare op of the gepi, not gepi itself
-         for (Argument& arg : si->getFunction()->args()) {
-          #if DEBUG
-          errs() << " PBRef comp: " << *dyn_cast<Instruction>(currVal)->getOperand(0) << " and " << arg << "\n";
-          #endif
-          if (dyn_cast<Instruction>(currVal)->getOperand(0) == &arg) {
-            //if taint came from inside any callsite is potentially tainted
+        // check pbref, need to compare op of the gepi, not gepi itself
+        for (auto& arg : si->getFunction()->args()) {
+#if DEBUG
+          errs() << " PBRef comp: " << *dyn_cast<Instruction>(curVal)->getOperand(0) << " and " << arg << "\n";
+#endif
+          if (dyn_cast<Instruction>(curVal)->getOperand(0) == &arg) {
+            // if taint came from inside any callsite is potentially tainted
             if (caller == nullptr) {
-              for(Value* calls : si->getFunction()->users()) {
+              for (Value* calls : si->getFunction()->users()) {
                 interProcSinks.push_back(calls);
                 interProcSinks.push_back(dyn_cast<Value>(&arg));
                 if (Instruction* key = dyn_cast<Instruction>(calls)) {
-
-          //         iInfo->at(key).insert(srcOp);
+                  //         taintedInsts->at(key).insert(srcOp);
                 }
               }
             } else {
-            //otherwise, just the caller's
+              // otherwise, just the caller's
               interProcSinks.push_back(caller);
               interProcSinks.push_back(dyn_cast<Value>(&arg));
               if (Instruction* key = dyn_cast<Instruction>(caller)) {
-
-            //  iInfo->at(key).insert(srcOp);
+                //  taintedInsts->at(key).insert(srcOp);
               }
             }
           }
-         }
+        }
       }
-        
+
     } else {
-      //if not a store, do normal users of currval
-      customUsers.insert(customUsers.end(), currVal->user_begin(), currVal->user_end());
+#if DEBUG
+      errs() << "[Loop localDeps] cur inst != StoreInst\n";
+      errs() << "[Loop localDeps] Add users of cur inst to customUsers:\n";
+      for (auto* use : curVal->users()) errs() << *use << "\n";
+#endif
+      // If not a store, do normal users of curVal
+      customUsers.insert(customUsers.end(), curVal->user_begin(), curVal->user_end());
     }
 
-    
-   
-      
-    for (Value* use : customUsers) { 
+#if DEBUG
+    errs() << "[Loop localDeps] Go over uses\n";
+#endif
+    //* Here we may cross over to another procedure
+    for (auto* use : customUsers) {
+      // Check that the use of a tainted pointer is really tainted
 
-      //check that the use of a tainted pointer is really tainted
-      
-      //this is checking if the use is a tainted store 
-      
-      if (ReturnInst* ri = dyn_cast<ReturnInst>(use)) {
-        #if DEBUG
-          errs() << "DEBUG: in return case\n";
-        #endif
+      // This is checking if the use is a tainted store
+
+      if (auto ri = dyn_cast<ReturnInst>(use)) {
+#if DEBUG
+        errs() << "[Loop customUsers] use = ReturnInst\n";
+#endif
         if (caller == nullptr) {
-          for(Value* calls : ri->getFunction()->users()) {
-            if(CallInst* ci = dyn_cast<CallInst>(calls)) {
+#if DEBUG
+          errs() << "[Loop customUsers] No caller\n";
+#endif
+          for (auto calls : ri->getFunction()->users()) {
+            if (auto ci = dyn_cast<CallInst>(calls)) {
               interProcSinks.push_back(calls);
-              //extra for bookkeeping
+              // extra for bookkeeping
               interProcSinks.push_back(use);
             }
           }
         } else {
-        //otherwise, just the caller's
+#if DEBUG
+          errs() << "[Loop customUsers] Some caller\n";
+#endif
+          // otherwise, just the caller's
           interProcSinks.push_back(caller);
-          //extra for bookkeeping
+          // extra for bookkeeping
           interProcSinks.push_back(use);
         }
-
-      } else if (isa<CallInst>(use)) {
-        #if DEBUG
-          errs() << "DEBUG: in call case\n";
-        #endif
-        //Add the right argument to the list
-        CallInst* ci = dyn_cast<CallInst>(use);
-        Function* calledFunc = ci ->getCalledFunction();
-        if (calledFunc == NULL || calledFunc->empty()) {
-          //special case for llvm.memcpy
-          //See if it is (or aliases?) one of the function arguments
-          if (calledFunc!=NULL && calledFunc->hasName() &&
-            calledFunc->getName().contains("llvm.memcpy")) {
-            //errs() << "DEBUG: memcpy " << *ci << "\n";  
+      } else if (auto* ci = dyn_cast<CallInst>(use)) {
+#if DEBUG
+        errs() << "[Loop customUsers] use = CallInst\n";
+#endif
+        // Add the right argument to the list
+        auto* calledFun = ci->getCalledFunction();
+        if (calledFun == NULL || calledFun->empty()) {
+          // special case for llvm.memcpy
+          // See if it is (or aliases?) one of the function arguments
+          if (calledFun != NULL && calledFun->hasName() &&
+              calledFun->getName().contains("llvm.memcpy")) {
+            // errs() << "memcpy " << *ci << "\n";
             Value* src = ci->getOperand(1)->stripPointerCasts();
             Value* dest = ci->getOperand(0);
-           // errs() << "DEBUG: with dest " << *dest << "\n";  
+            // errs() << "with dest " << *dest << "\n";
             if (BitCastInst* bci = dyn_cast<BitCastInst>(dest)) {
               dest = bci->getOperand(0);
-            } 
+            }
             if (GetElementPtrInst* gepi = dyn_cast<GetElementPtrInst>(dest)) {
               dest = gepi->getOperand(0);
-          //    errs() << "DEBUG: and gepi dest " << *dest << "\n"; 
+              //    errs() << "and gepi dest " << *dest << "\n";
             }
             bool found = false;
             for (Argument& arg : ci->getFunction()->args()) {
-              //Value* to_comp = 
-              #if DEBUG
+// Value* to_comp =
+#if DEBUG
               errs() << " PBRef comp: " << *dest << " and " << arg << "\n";
-              #endif
-              if (dest== &arg) {
+#endif
+              if (dest == &arg) {
                 found = true;
-                //if taint came from inside any callsite is potentially tainted
+                // if taint came from inside any callsite is potentially tainted
                 if (caller == nullptr) {
-                  for(Value* calls : ci->getFunction()->users()) {
+                  for (Value* calls : ci->getFunction()->users()) {
                     interProcSinks.push_back(calls);
                     interProcSinks.push_back(dyn_cast<Value>(&arg));
                     if (Instruction* key = dyn_cast<Instruction>(calls)) {
-
-               //        iInfo->at(key).insert(srcOp);
+                      //        taintedInsts->at(key).insert(srcOp);
                     }
                   }
                 } else {
-                //otherwise, just the caller's
+                  // otherwise, just the caller's
                   interProcSinks.push_back(caller);
                   interProcSinks.push_back(dyn_cast<Value>(&arg));
                   if (Instruction* key = dyn_cast<Instruction>(caller)) {
-              //      iInfo->at(key).insert(srcOp);
+                    //      taintedInsts->at(key).insert(srcOp);
                   }
                 }
               }
             }
-            //it wasn't pbref, just "store", so find fst ptr after call
-            //and also put in iInfo
+            // it wasn't pbref, just "store", so find fst ptr after call
+            // and also put in taintedInsts
             if (!found) {
-              Value* destFst = ptrAfterCall(dest,ci);
+              Value* destFst = ptrAfterCall(dest, ci);
 
-              
-              //in case of loop 
-              if (destFst !=ci->getOperand(0)) {
-               // errs () << "found a memcpy store " << *destFst <<"\n";
-                if(iInfo->find(ci)!=iInfo->end()) {
-                  if (find(iInfo->at(ci).begin(), iInfo->at(ci).end(), srcOp)!=iInfo->at(ci).end()) {
+              // in case of loop
+              if (destFst != ci->getOperand(0)) {
+                // errs () << "found a memcpy store " << *destFst <<"\n";
+                if (taintedInsts->find(ci) != taintedInsts->end()) {
+                  if (find(taintedInsts->at(ci).begin(), taintedInsts->at(ci).end(), srcInput) != taintedInsts->at(ci).end()) {
                     continue;
                   } else {
-                    iInfo->at(ci).insert(srcOp);
+                    taintedInsts->at(ci).insert(srcInput);
                   }
                 } else {
-                  set<Instruction*> seti;
-                  seti.insert(srcOp);
-                  iInfo->emplace(ci, seti);
+                  std::set<Instruction*> seti;
+                  seti.insert(srcInput);
+                  taintedInsts->emplace(ci, seti);
                 }
                 localDeps.push(destFst);
               }
-            }  
-          } //end memcpy check
+            }
+          }  // end memcpy check
 
-          //conservative tainting decision
-          if (calledFunc->empty()) {
-            
-              //if it's empty but declared in our mod (one of the passed in C ones)
-              //and it returns a value, then consider the taint passed to the 
-              //return
-              if (!calledFunc->getName().contains("llvm") && 
-              !calledFunc->getName().contains("core")) {
-                #if DEBUG
-                errs() << "DEBUG: pushing presumed c lib func " << calledFunc->getName() << "\n";
-                #endif
-                localDeps.push(ci);
-              }
-            
+          // conservative tainting decision
+          if (calledFun->empty()) {
+            // if it's empty but declared in our mod (one of the passed in C ones)
+            // and it returns a value, then consider the taint passed to the
+            // return
+            if (!calledFun->getName().contains("llvm") &&
+                !calledFun->getName().contains("core")) {
+#if DEBUG
+              errs() << "pushing presumed c lib func " << calledFun->getName() << "\n";
+#endif
+              localDeps.push(ci);
+            }
           }
           continue;
-            
         }
-	      unsigned int arg_num = ci->getNumArgOperands();
-	      
-	      // Find the index of the tainted argument
-	      for (unsigned int i = 0; i < arg_num; i++){
-          #if DEBUG
-            errs() << "DEBUG: comparing "<< *currVal <<" and " << *(ci->getArgOperand(i))<<"\n";
-          #endif
-	        if(ci->getArgOperand(i)==currVal) {
-            #if DEBUG
-              errs() << "DEBUG: pushing arg of "<< calledFunc->getName() <<"\n";
-            #endif
-	          interProcSinks.push_back((calledFunc->arg_begin() + i));
-            //MUST also push back the call inst.
-            interProcSinks.push_back(ci);
-            //MUST also push back the current srcOp
-            interProcSinks.push_back(srcOp);
-            if (Instruction* key = dyn_cast<Instruction>(ci)) {
-              //  iInfo->at(key).insert(srcOp);
-            }
-	          break;
-	        }
-	      }
 
-      } else if (Instruction* iUse = dyn_cast<Instruction>(use)) {
+        unsigned int arg_num = ci->arg_size();
+#if DEBUG
+        errs() << "[Loop customUsers] Find tainted arg of " << calledFun->getName() << "\n";
+#endif
+        // Find the index of the tainted argument
+        for (unsigned int i = 0; i < arg_num; i++) {
+          auto* arg = ci->getArgOperand(i);
+          if (arg == curVal) {
+            auto funArg = calledFun->arg_begin() + i;
+#if DEBUG
+            errs() << "Found tainted arg: " << *arg << ", add fun arg (" << *funArg << "), the use (" << *ci << "), and orig input (" << *srcInput << ") to interProcFlows\n";
+#endif
+            interProcSinks.push_back(funArg);
+            // MUST also push back the call inst.
+            interProcSinks.push_back(ci);
+            // MUST also push back the current srcInput
+            interProcSinks.push_back(srcInput);
+            if (auto* key = dyn_cast<Instruction>(ci)) {
+              //  taintedInsts->at(key).insert(srcOp);
+            }
+            break;
+          }
+        }
+      } else if (auto* iUse = dyn_cast<Instruction>(use)) {
+#if DEBUG
+        errs() << "[Loop customUsers] use != ReturnInst & use != CallInst\n";
+#endif
         if (iUse->isTerminator()) {
           if (iUse->getNumSuccessors() > 1) {
-            //Add control deps off of a branch.
-            #if DEBUG
-              errs() << "DEBUG: adding condeps case\n";
-            #endif
+// Add control deps off of a branch.
+#if DEBUG
+            errs() << "adding condeps case\n";
+#endif
             val_vec controlDeps = getControlDeps(iUse);
-            //for all condep, add any reached loads, and add the store to the map 
-            for (Value* item : controlDeps) {
-              if (StoreInst* siCon = dyn_cast<StoreInst>(item)) {
+            // for all condep, add any reached loads, and add the store to the map
+            for (auto* item : controlDeps) {
+              if (auto* siCon = dyn_cast<StoreInst>(item)) {
                 localDeps.push(siCon);
               }
-            }//end for vals in condep
+            }
           }
-        }//end terminator check
-        #if DEBUG
-        //errs() << "DEBUG: pushing "<< *iUse<<"\n";
-        #endif
+        }
+
+#if DEBUG
+        errs() << "[Loop customUsers] Add use to localDeps\n";
+#endif
+        //* Here we may push inst from another procedure, crossing boundaries
         localDeps.push(iUse);
       }
     }
+#if DEBUG
+    errs() << "*** Loop localDeps ***\n";
+#endif
   }
 
+#if DEBUG
+  errs() << "*** traverseLocal ***\n";
+#endif
   return interProcSinks;
 }
 
+inst_vec findInputInsts(Module* M) {
+#if DEBUG
+  errs() << "findInputInsts\n";
+#endif
+  inst_vec inputInsts;
 
-
-inst_vec findInputInsts(Module* M) 
-{
-  inst_vec sources;
-  func_vec io_name;
-  //Find io name annotations
-  for(GlobalVariable& gv : M->globals()) {
-    if(gv.getName().contains("IO_NAME"))  {
-      
-      if( Function* fp = dyn_cast<Function>(gv.getInitializer()->getOperand(0)->stripPointerCasts())) {
-      #if DEBUG
-        errs() << "Found io inst "<< fp->getName() <<"\n";
-      #endif  
-      	io_name.push_back(fp);
+  // Find IO_NAME annotations
+  for (auto& gv : M->globals()) {
+    if (gv.getName().starts_with("IO_NAME")) {
+      if (auto* fp = dyn_cast<Function>(gv.getInitializer())) {
+#if DEBUG
+        errs() << "Found IO fun: " << fp->getName() << "\n";
+#endif
+        // Now, search for calls to those functions
+        for (auto& F : *M) {
+          for (auto& B : F) {
+            for (auto& I : B) {
+              if (auto* ci = dyn_cast<CallInst>(&I)) {
+                if (fp == ci->getCalledFunction()) {
+#if DEBUG
+                  errs() << "Found IO call: " << I << "\n";
+#endif
+                  inputInsts.push_back(&I);
+                  break;
+                }
+              }
+            }
+          }
+        }
       } else {
-      	errs() << "ERROR: could not unwrap function pointer from annotation\n";
+        // TODO: Say something else
+        errs() << "[ERROR] Could not unwrap function pointer from annotation\n";
       }
     }
-  } 
-
-  //now, search for calls to those functions
-  for (Function& func : * M) {
-    for (BasicBlock& bb : func) {
-      for(Instruction& inst : bb) {
-        if(CallInst* ci = dyn_cast<CallInst>(&inst)) {
-        	if(find(io_name.begin(), io_name.end(),ci->getCalledFunction())!=io_name.end()) {
-	          sources.push_back(&inst);
-	        }
-        }
-      }
-
-    } 
   }
-  return sources;
+
+  return inputInsts;
 }
 
-
-/*See if a particular store is exposed to a use -- possibly replace couldLoadTainted*/
+// See if a particular store is exposed to a use -- possibly replace couldLoadTainted
 bool storePrecedesUse(Instruction* use, StoreInst* toMatch) {
-  queue<BasicBlock*> to_visit; 
-  vector<BasicBlock*> visited;
+  std::queue<BasicBlock*> to_visit;
+  std::vector<BasicBlock*> visited;
   BasicBlock* current;
-  vector<Value*> possible;
+  std::vector<Value*> possible;
   int found = 0;
   int skip = 1;
-  
+
   to_visit.push(use->getParent());
 
-  while(!to_visit.empty()) {
+  while (!to_visit.empty()) {
     current = to_visit.front();
     to_visit.pop();
-     
-    for(BasicBlock::reverse_iterator i = current->rbegin(), e = current->rend(); i!=e;++i) {
+
+    for (BasicBlock::reverse_iterator i = current->rbegin(), e = current->rend(); i != e; ++i) {
       Instruction* inst = &*i;
-      //don't look at li block before li
-      if((current == use->getParent())&&(skip)) {
-	      //errs() << "skipping" << *inst <<"\n";
-      	if(use==inst){
-	        skip = 0;
-      	}
-      	continue;
+      // don't look at li block before li
+      if ((current == use->getParent()) && (skip)) {
+        // errs() << "skipping" << *inst <<"\n";
+        if (use == inst) {
+          skip = 0;
+        }
+        continue;
       }
-      //if(BI!=nullptr) {
-      //errs() << "looking at" << *BI <<"\n";
-    	if (StoreInst* si = dyn_cast<StoreInst>(inst)) {
-    	  //errs() << "found a store" << *si <<"\n";
-    	  if (si->getPointerOperand() == toMatch->getPointerOperand()) {
-	        possible.push_back(si);
-	        found = 1;
-	        break;
-	      }
-    	}
+      // if(BI!=nullptr) {
+      // errs() << "looking at" << *BI <<"\n";
+      if (StoreInst* si = dyn_cast<StoreInst>(inst)) {
+        // errs() << "found a store" << *si <<"\n";
+        if (si->getPointerOperand() == toMatch->getPointerOperand()) {
+          possible.push_back(si);
+          found = 1;
+          break;
+        }
+      }
     }
-    //we found a store in this node
-    if(found) {
+    // we found a store in this node
+    if (found) {
       found = 0;
       continue;
     }
     /*add pred. blocks to our queue*/
     for (auto PI = pred_begin(current); PI != pred_end(current); ++PI) {
-      //if it's new
-      if(!(find(visited.begin(), visited.end(), *PI) != visited.end())){
-	      visited.push_back(*PI);
-	      to_visit.push(*PI);
+      // if it's new
+      if (!(find(visited.begin(), visited.end(), *PI) != visited.end())) {
+        visited.push_back(*PI);
+        to_visit.push(*PI);
       }
     }
   }
   /*Was one of the preceding writes the store in question?*/
-  for(Value* poss : possible) {
-    if(poss == toMatch) {
-	    return true;
+  for (Value* poss : possible) {
+    if (poss == toMatch) {
+      return true;
     }
-    
   }
-  //this use does not consume the tainted store
+  // this use does not consume the tainted store
   return false;
 }
 
-
 /*See if the same EP is used in multiple GEPI, check if exposed*/
 inst_vec couldMatchGEPI(GetElementPtrInst* tGEPI) {
-  queue<BasicBlock*> to_visit; 
-  vector<BasicBlock*> visited;
+  std::queue<BasicBlock*> to_visit;
+  std::vector<BasicBlock*> visited;
   BasicBlock* current;
-  vector<Value*> possible;
+  std::vector<Value*> possible;
   inst_vec matching;
   int found = 0;
   int skip = 1;
-  
+
   to_visit.push(tGEPI->getParent());
 
-  while(!to_visit.empty()) {
+  while (!to_visit.empty()) {
     current = to_visit.front();
     to_visit.pop();
-     
-     //forwards exploration
-    for(Instruction& i : *current) {
+
+    // forwards exploration
+    for (Instruction& i : *current) {
       Instruction* inst = &i;
-      //don't look at gepi block before gepi
-      if((current == tGEPI->getParent())&&(skip)) {
-	      //errs() << "skipping" << *inst <<"\n";
-      	if(tGEPI==inst){
-	        skip = 0;
-      	}
-      	continue;
+      // don't look at gepi block before gepi
+      if ((current == tGEPI->getParent()) && (skip)) {
+        // errs() << "skipping" << *inst <<"\n";
+        if (tGEPI == inst) {
+          skip = 0;
+        }
+        continue;
       }
-      //if(BI!=nullptr) {
-      //errs() << "looking at" << *BI <<"\n";
-    	if (GetElementPtrInst* another = dyn_cast<GetElementPtrInst>(inst)) {
-    	  //errs() << "found a store" << *si <<"\n";
-        //check if the ops match
-    	  if (another->getPointerOperand() == tGEPI->getPointerOperand()) {
-          //check if used in load or store
-	        for (Value* pUse : another->users()) {
+      // if(BI!=nullptr) {
+      // errs() << "looking at" << *BI <<"\n";
+      if (GetElementPtrInst* another = dyn_cast<GetElementPtrInst>(inst)) {
+        // errs() << "found a store" << *si <<"\n";
+        // check if the ops match
+        if (another->getPointerOperand() == tGEPI->getPointerOperand()) {
+          // check if used in load or store
+          for (Value* pUse : another->users()) {
             if (isa<StoreInst>(pUse)) {
               found = 1;
               break;
             }
           }
-	        //no store
+          // no store
           if (!found) {
-            #if DEBUG
-            errs() << "matching GEPS: " << *another<<" and " << *tGEPI <<"\n";
-            #endif
+#if DEBUG
+            errs() << "matching GEPS: " << *another << " and " << *tGEPI << "\n";
+#endif
             matching.push_back(another);
           }
-	      }
-    	}
+        }
+      }
     }
-    //we found a store in this node
-    if(found) {
+    // we found a store in this node
+    if (found) {
       found = 0;
       continue;
     }
     /*add succ. blocks to our queue*/
     for (auto SI = succ_begin(current); SI != succ_end(current); ++SI) {
-      //if it's new
-      if(!(find(visited.begin(), visited.end(), *SI) != visited.end())){
-	      visited.push_back(*SI);
-	      to_visit.push(*SI);
+      // if it's new
+      if (!(find(visited.begin(), visited.end(), *SI) != visited.end())) {
+        visited.push_back(*SI);
+        to_visit.push(*SI);
       }
     }
   }
-  
+
   return matching;
 }
 
 /*Find first use of a pointer after a callInst, for pass-by-ref*/
 Instruction* ptrAfterCall(Value* ptr, CallInst* ci) {
-  queue<BasicBlock*> to_visit; 
-  vector<BasicBlock*> visited;
+  std::queue<BasicBlock*> to_visit;
+  std::vector<BasicBlock*> visited;
   BasicBlock* current;
-  
+
   int found = 0;
   int skip = 1;
-  
+
   to_visit.push(ci->getParent());
 
-  while(!to_visit.empty()) {
+  while (!to_visit.empty()) {
     current = to_visit.front();
     to_visit.pop();
-     
-     //forwards exploration
-    for(Instruction& i : *current) {
+
+    // forwards exploration
+    for (Instruction& i : *current) {
       Instruction* inst = &i;
-      //don't look at gepi block before gepi
-      if((current == ci->getParent())&&(skip)) {
-	      //errs() << "skipping" << *inst <<"\n";
-      	if(ci==inst){
-	        skip = 0;
-      	}
-      	continue;
+      // don't look at gepi block before gepi
+      if ((current == ci->getParent()) && (skip)) {
+        // errs() << "skipping" << *inst <<"\n";
+        if (ci == inst) {
+          skip = 0;
+        }
+        continue;
       }
-      //if the inst is a use of the pointer
-    	if (find(ptr->user_begin(),ptr->user_end(), inst)!=ptr->user_end()) {
+      // if the inst is a use of the pointer
+      if (std::find(ptr->user_begin(), ptr->user_end(), inst) != ptr->user_end()) {
         return inst;
       }
-      
     }
     /*add succ. blocks to our queue*/
     for (auto SI = succ_begin(current); SI != succ_end(current); ++SI) {
-      //if it's new
-      if(!(find(visited.begin(), visited.end(), *SI) != visited.end())){
-	      visited.push_back(*SI);
-	      to_visit.push(*SI);
+      // if it's new
+      if (!(find(visited.begin(), visited.end(), *SI) != visited.end())) {
+        visited.push_back(*SI);
+        to_visit.push(*SI);
       }
     }
   }
   return nullptr;
 }
 
-
-/*This is a function to return all the control dependent stores off of a control inst 
-Input -- ti, the (formerly) terminator inst 
+/*This is a function to return all the control dependent stores off of a control inst
+Input -- ti, the (formerly) terminator inst
 Output -- list of deps */
-val_vec getControlDeps(Instruction* ti)
-{
+val_vec getControlDeps(Instruction* ti) {
   val_vec deps;
   int succ_i = 0;
   while (succ_i < ti->getNumSuccessors()) {
     BasicBlock* bb = ti->getSuccessor(succ_i);
     succ_i++;
-    for(Instruction& inst : *bb) {
-      //if we encounter a store, add to deps
-      if(isa<StoreInst>(&inst)) {
-	      deps.push_back(&inst);
-      } //if we encounter a multi succ branch, recursive call, if we encouter a join, continue to next succ
-      else if(inst.isTerminator()) {
-
-    	  if(ti->getNumSuccessors() > 1) {
-	        vector<Value*> intermed = getControlDeps(&inst);
-	        for(Value* item : intermed) {
-	          deps.push_back(item);
-	        } 
-	      } else {
-	        break;
-	      }
+    for (Instruction& inst : *bb) {
+      // if we encounter a store, add to deps
+      if (isa<StoreInst>(&inst)) {
+        deps.push_back(&inst);
+      }  // if we encounter a multi succ branch, recursive call, if we encouter a join, continue to next succ
+      else if (inst.isTerminator()) {
+        if (ti->getNumSuccessors() > 1) {
+          std::vector<Value*> intermed = getControlDeps(&inst);
+          for (Value* item : intermed) {
+            deps.push_back(item);
+          }
+        } else {
+          break;
+        }
       }
     }
   }
   return deps;
 }
 
-
-/*Get direct uses (at src level, not IR) of a fresh var*/
-inst_vec traverseDirectUses(Instruction* root)
-{
+// Get direct uses (at src level, not IR) of a fresh var
+inst_vec traverseDirectUses(Instruction* root) {
+#if DEBUG
+  errs() << "=== traverseDirectUses ===\n";
+#endif
   inst_vec uses;
-  queue<Instruction*> localDeps;
+  std::queue<Instruction*> localDeps;
+#if DEBUG
+  errs() << "Add root to localDeps: " << *root << "\n";
+#endif
   localDeps.push(root);
-  
-  //Edge case: check if return is an internally allocated stack var
+
+  // Edge case: check if return is an internally allocated stack var
   Value* retPtr;
-  Instruction* last = &(root->getFunction()->back().back());
-  if (ReturnInst* ri = dyn_cast<ReturnInst>(last)) {
-    for (Use& op : ri->operands()) {
-      if(LoadInst* li  = dyn_cast<LoadInst>(op.get())) {
+  auto* last = &(root->getFunction()->back().back());
+  if (auto* ri = dyn_cast<ReturnInst>(last)) {
+    for (auto& op : ri->operands()) {
+      if (auto* li = dyn_cast<LoadInst>(op.get())) {
         retPtr = li->getPointerOperand();
+#if DEBUG
+        errs() << "retPtr: " << *retPtr << "\n";
+#endif
       }
     }
-
   }
 
-  while(!localDeps.empty()) {
-    Instruction* currVal = localDeps.front();
-    uses.push_back(currVal);
+  while (!localDeps.empty()) {
+    auto* curVal = localDeps.front();
+#if DEBUG
+    errs() << "[Loop localDeps] Add curVal to uses: " << *curVal << "\n";
+#endif
+    uses.push_back(curVal);
     localDeps.pop();
-    for (Value* use : currVal->users()) {
-      //if it's a gepi, see if there are others that occur afterwards 
-      //      errs() << *use <<" is a direct use of " << *currVal<<"\n";
+
+#if DEBUG
+    errs() << "[Loop localDeps] Go over curVal users\n";
+#endif
+    for (auto* use : curVal->users()) {
+#if DEBUG
+      errs() << "[Loop users] use: " << *use << "\n";
+#endif
+      // If it's a gepi, see if there are others that occur afterwards
+      //       errs() << *use <<" is a direct use of " << *currVal<<"\n";
       if (isa<GetElementPtrInst>(use)) {
-        inst_vec matching = couldMatchGEPI(dyn_cast<GetElementPtrInst>(use));
-        for (Instruction* item : matching) {
-	  //  errs() << "pushing to local deps " << *item <<"\n";
+        auto matching = couldMatchGEPI(dyn_cast<GetElementPtrInst>(use));
+        for (auto* item : matching) {
+          //  errs() << "pushing to local deps " << *item <<"\n";
           localDeps.push(item);
         }
-      }
-      else if (ReturnInst* ri = dyn_cast<ReturnInst>(use)) {
-        for(Value* calls : ri->getFunction()->users()) {
-          if(isa<CallInst>(calls)) {
+      } else if (ReturnInst* ri = dyn_cast<ReturnInst>(use)) {
+        for (Value* calls : ri->getFunction()->users()) {
+          if (isa<CallInst>(calls)) {
             uses.push_back(dyn_cast<Instruction>(calls));
-            
           }
         }
       } else if (StoreInst* si = dyn_cast<StoreInst>(use)) {
-        //if stores into ret pointer, treat as above
+#if DEBUG
+        errs() << "[Loop users] use = StoreInst\n";
+#endif
+        // If stores into ret pointer, treat as above
         if (si->getPointerOperand() == retPtr) {
-          for(Value* calls : si->getFunction()->users()) {
-            if(isa<CallInst>(calls)) {
-             uses.push_back(dyn_cast<Instruction>(calls));
-            
+#if DEBUG
+          errs() << "[Loop users] ptr operand = retPtr\n";
+#endif
+          for (Value* calls : si->getFunction()->users()) {
+            if (isa<CallInst>(calls)) {
+              uses.push_back(dyn_cast<Instruction>(calls));
             }
-         }
+          }
         }
       } else if (BranchInst* bi = dyn_cast<BranchInst>(use)) {
-        //if a use is a branch inst the atomic region needs to 
-        //dominate the successors
+        // If a use is a branch inst the atomic region needs to
+        // dominate the successors
         for (BasicBlock* bbInterior : bi->successors()) {
-          //skip panic blocks, otherwise there will be no post dom
+          // Skip panic blocks, otherwise there will be no post dom
           if (bbInterior->getName().equals("panic")) {
             continue;
           }
           uses.push_back(&(bbInterior->front()));
         }
       } else if (CallInst* ci = dyn_cast<CallInst>(use)) {
-        if(ci->hasName() && ci->getName().startswith("_")) {
-          //fall through  
+#if DEBUG
+        errs() << "[Loop users] use = CallInst\n";
+#endif
+        if (ci->hasName() && ci->getName().startswith("_")) {
+          // Fall through
         } else {
+#if DEBUG
+          errs() << "[Loop users] Add CallInst to uses\n";
+#endif
           uses.push_back(ci);
           continue;
         }
       }
-      if (Instruction* iUse = dyn_cast<Instruction>(use)) {
-        //see if load is to another var or just internal ssa
-        if (LoadInst* li = dyn_cast<LoadInst>(iUse)) {
-          if(li->hasName()) {
-            //Hacky --verify that this is always true
-            if(!li->getName().startswith("_")) {
+
+      if (auto* iUse = dyn_cast<Instruction>(use)) {
+        // See if load is to another var or just internal ssa
+        if (auto* li = dyn_cast<LoadInst>(iUse)) {
+          if (li->hasName()) {
+            // Hacky -- verify that this is always true
+            if (!li->getName().startswith("_"))
               continue;
-            }
           }
         }
+
+#if DEBUG
+        errs() << "[Loop users] Add use to localDeps\n";
+#endif
         localDeps.push(iUse);
       }
     }
   }
 
+#if DEBUG
+  errs() << "*** traverseDirectUses ***\n";
+#endif
   return uses;
 }
 
+inst_vec traverseUses(Instruction* root) {
+#if DEBUG
+  errs() << "=== traverseUses ===\n";
+#endif
+  auto directUses = traverseDirectUses(root);
+  inst_set uses(directUses.begin(), directUses.end());
 
+  for (auto* directUse : directUses) {
+#if DEBUG
+    errs() << "[directUses] directUse: " << *directUse << "\n";
+#endif
+
+    if (auto* si = dyn_cast<StoreInst>(directUse)) {
+#if DEBUG
+      errs() << "[directUses] directUse = StoreInst\n";
+#endif
+
+      auto* ptr = si->getPointerOperand();
+#if DEBUG
+      errs() << "[directUses] ptr operand: " << *ptr << "\n";
+#endif
+
+      for (auto* ptrUse : ptr->users()) {
+        if (auto* li = dyn_cast<LoadInst>(ptrUse)) {
+#if DEBUG
+          errs() << "[ptrUsers] Add ptrUse (LoadInst) to uses: " << *ptrUse << "\n";
+#endif
+          uses.emplace(li);
+
+          for (auto* liUse : li->users()) {
+            if (auto* ci = dyn_cast<CallInst>(liUse)) {
+#if DEBUG
+              errs() << "[liUsers] Add liUse (CallInst) to uses: " << *liUse << "\n";
+#endif
+              uses.emplace(ci);
+            }
+          }
+        }
+      }
+    }
+  }
+
+#if DEBUG
+  errs() << "=== traverseUses ===\n";
+#endif
+  inst_vec uses_vec(uses.begin(), uses.end());
+  return uses_vec;
+}

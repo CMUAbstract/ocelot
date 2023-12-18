@@ -1,14 +1,21 @@
-# region-inference-pass
+# Atomic Region Inference
 
-LLVM Pass for inferring atomic regions
+LLVM Pass for inferring atomic regions. Tested to work with LLVM 17.
 
-Build:
+To build the pass:
 
-	$ mkdir build
-	$ cd build
-	$ cmake ..
-	$ make
+```sh
+mkdir build
+cd build
+cmake ..
+make
+```
 
-Run:
+You may bootstrap Clang to use the pass to compile a C file like so:
 
-	$ opt -load build/src/libInferAtomicPass.so -atomize something.bc
+```sh
+clang -S -emit-llvm -fpass-plugin=src/InferAtomsPass.dylib -fno-discard-value-names ../../../benchmarks/ctests/example01.c
+```
+
+Or, when testing, use the shortcuts provided in the Makefile (e.g., `make eg1`),
+which produce two LLVM IRs with and without the pass enabled.
