@@ -16,3 +16,6 @@ You may bootstrap Clang to use the pass to compile a C file like so:
 ```sh
 clang -S -emit-llvm -fpass-plugin=src/InferAtomsPass.dylib -fno-discard-value-names ../../../benchmarks/ctests/example01.c
 ```
+
+Or, when testing, use the shortcuts provided in the Makefile (e.g., `make eg1`),
+which produce two LLVM IRs with and without the pass enabled.

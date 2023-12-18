@@ -7,6 +7,9 @@
 
 using namespace llvm;
 
+#define DEBUG 1
+#define OPT 1
+
 std::string getSimpleNodeLabel(const Value* Node);
 bool isAnnot(const StringRef annotName);
 void printInstInsts(const inst_insts_map& iim, bool onlyCalls = false);

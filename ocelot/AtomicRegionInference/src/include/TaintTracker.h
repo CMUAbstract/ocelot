@@ -13,5 +13,6 @@ bool storePrecedesUse(Instruction* use, StoreInst* toMatch);
 inst_vec couldMatchGEPI(GetElementPtrInst* tGEPI);
 val_vec getControlDeps(Instruction* ti);
 inst_vec traverseDirectUses(Instruction* root);
+inst_vec traverseUses(Instruction* root);
 
 #endif
