@@ -833,31 +833,50 @@ val_vec getControlDeps(Instruction* ti) {
 
 // Get direct uses (at src level, not IR) of a fresh var
 inst_vec traverseDirectUses(Instruction* root) {
+#if DEBUG
+  errs() << "=== traverseDirectUses ===\n";
+#endif
   inst_vec uses;
   std::queue<Instruction*> localDeps;
+#if DEBUG
+  errs() << "Add root to localDeps: " << *root << "\n";
+#endif
   localDeps.push(root);
 
   // Edge case: check if return is an internally allocated stack var
   Value* retPtr;
-  Instruction* last = &(root->getFunction()->back().back());
-  if (ReturnInst* ri = dyn_cast<ReturnInst>(last)) {
-    for (Use& op : ri->operands()) {
-      if (LoadInst* li = dyn_cast<LoadInst>(op.get())) {
+  auto* last = &(root->getFunction()->back().back());
+  if (auto* ri = dyn_cast<ReturnInst>(last)) {
+    for (auto& op : ri->operands()) {
+      if (auto* li = dyn_cast<LoadInst>(op.get())) {
         retPtr = li->getPointerOperand();
+#if DEBUG
+        errs() << "retPtr: " << *retPtr << "\n";
+#endif
       }
     }
   }
 
   while (!localDeps.empty()) {
-    Instruction* currVal = localDeps.front();
-    uses.push_back(currVal);
+    auto* curVal = localDeps.front();
+#if DEBUG
+    errs() << "[Loop localDeps] Add curVal to uses: " << *curVal << "\n";
+#endif
+    uses.push_back(curVal);
     localDeps.pop();
-    for (Value* use : currVal->users()) {
-      // if it's a gepi, see if there are others that occur afterwards
+
+#if DEBUG
+    errs() << "[Loop localDeps] Go over curVal users\n";
+#endif
+    for (auto* use : curVal->users()) {
+#if DEBUG
+      errs() << "[Loop users] use: " << *use << "\n";
+#endif
+      // If it's a gepi, see if there are others that occur afterwards
       //       errs() << *use <<" is a direct use of " << *currVal<<"\n";
       if (isa<GetElementPtrInst>(use)) {
-        inst_vec matching = couldMatchGEPI(dyn_cast<GetElementPtrInst>(use));
-        for (Instruction* item : matching) {
+        auto matching = couldMatchGEPI(dyn_cast<GetElementPtrInst>(use));
+        for (auto* item : matching) {
           //  errs() << "pushing to local deps " << *item <<"\n";
           localDeps.push(item);
         }
@@ -868,8 +887,14 @@ inst_vec traverseDirectUses(Instruction* root) {
           }
         }
       } else if (StoreInst* si = dyn_cast<StoreInst>(use)) {
-        // if stores into ret pointer, treat as above
+#if DEBUG
+        errs() << "[Loop users] use = StoreInst\n";
+#endif
+        // If stores into ret pointer, treat as above
         if (si->getPointerOperand() == retPtr) {
+#if DEBUG
+          errs() << "[Loop users] ptr operand = retPtr\n";
+#endif
           for (Value* calls : si->getFunction()->users()) {
             if (isa<CallInst>(calls)) {
               uses.push_back(dyn_cast<Instruction>(calls));
@@ -877,37 +902,99 @@ inst_vec traverseDirectUses(Instruction* root) {
           }
         }
       } else if (BranchInst* bi = dyn_cast<BranchInst>(use)) {
-        // if a use is a branch inst the atomic region needs to
+        // If a use is a branch inst the atomic region needs to
         // dominate the successors
         for (BasicBlock* bbInterior : bi->successors()) {
-          // skip panic blocks, otherwise there will be no post dom
+          // Skip panic blocks, otherwise there will be no post dom
           if (bbInterior->getName().equals("panic")) {
             continue;
           }
           uses.push_back(&(bbInterior->front()));
         }
       } else if (CallInst* ci = dyn_cast<CallInst>(use)) {
+#if DEBUG
+        errs() << "[Loop users] use = CallInst\n";
+#endif
         if (ci->hasName() && ci->getName().startswith("_")) {
-          // fall through
+          // Fall through
         } else {
+#if DEBUG
+          errs() << "[Loop users] Add CallInst to uses\n";
+#endif
           uses.push_back(ci);
           continue;
         }
       }
-      if (Instruction* iUse = dyn_cast<Instruction>(use)) {
-        // see if load is to another var or just internal ssa
-        if (LoadInst* li = dyn_cast<LoadInst>(iUse)) {
+
+      if (auto* iUse = dyn_cast<Instruction>(use)) {
+        // See if load is to another var or just internal ssa
+        if (auto* li = dyn_cast<LoadInst>(iUse)) {
           if (li->hasName()) {
-            // Hacky --verify that this is always true
-            if (!li->getName().startswith("_")) {
+            // Hacky -- verify that this is always true
+            if (!li->getName().startswith("_"))
               continue;
-            }
           }
         }
+
+#if DEBUG
+        errs() << "[Loop users] Add use to localDeps\n";
+#endif
         localDeps.push(iUse);
       }
     }
   }
 
+#if DEBUG
+  errs() << "*** traverseDirectUses ***\n";
+#endif
   return uses;
+}
+
+inst_vec traverseUses(Instruction* root) {
+#if DEBUG
+  errs() << "=== traverseUses ===\n";
+#endif
+  auto directUses = traverseDirectUses(root);
+  inst_set uses(directUses.begin(), directUses.end());
+
+  for (auto* directUse : directUses) {
+#if DEBUG
+    errs() << "[directUses] directUse: " << *directUse << "\n";
+#endif
+
+    if (auto* si = dyn_cast<StoreInst>(directUse)) {
+#if DEBUG
+      errs() << "[directUses] directUse = StoreInst\n";
+#endif
+
+      auto* ptr = si->getPointerOperand();
+#if DEBUG
+      errs() << "[directUses] ptr operand: " << *ptr << "\n";
+#endif
+
+      for (auto* ptrUse : ptr->users()) {
+        if (auto* li = dyn_cast<LoadInst>(ptrUse)) {
+#if DEBUG
+          errs() << "[ptrUsers] Add ptrUse (LoadInst) to uses: " << *ptrUse << "\n";
+#endif
+          uses.emplace(li);
+
+          for (auto* liUse : li->users()) {
+            if (auto* ci = dyn_cast<CallInst>(liUse)) {
+#if DEBUG
+              errs() << "[liUsers] Add liUse (CallInst) to uses: " << *liUse << "\n";
+#endif
+              uses.emplace(ci);
+            }
+          }
+        }
+      }
+    }
+  }
+
+#if DEBUG
+  errs() << "=== traverseUses ===\n";
+#endif
+  inst_vec uses_vec(uses.begin(), uses.end());
+  return uses_vec;
 }

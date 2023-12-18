@@ -219,6 +219,7 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
 #if DEBUG
             errs() << "[Loop Inst] Fresh arg: " << *arg << "\n";
 #endif
+
             if (auto* inst = dyn_cast<Instruction>(arg)) {
 #if DEBUG
               errs() << "[Loop Inst] arg = Instruction, add to v\n";
@@ -240,7 +241,7 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
 #endif
                   if (ptrUse != inst) {
                     if (auto* liUse = dyn_cast<LoadInst>(ptrUse)) {
-                      errs() << "[Loop ptr users] Diff LoadInst ptrUse, add to v\n";
+                      errs() << "[Loop ptr users] ptrUse diff from Fresh arg, add to v\n";
                       v.emplace(liUse);
                     }
                   }
@@ -443,23 +444,23 @@ inst_vec_vec InferAtomsPass::collectFresh(inst_vec_vec freshVars, inst_insts_map
     errs() << "[Loop freshVars] Go over varSet:\n";
     printInsts(varSet);
 #endif
-    std::set<Instruction*> unique, callChain;
+    inst_set unique, callChain;
     for (auto* var : varSet) {
 #if DEBUG
       errs() << "[Loop varSet] Cur var: " << *var << "\n";
 #endif
       // Uses (forwards) are direct only (might need a little chaining for direct in rs to be direct in IR)
-      inst_vec uses = traverseDirectUses(var);
+      inst_vec uses = traverseUses(var);
 
 #if DEBUG
       errs() << "[Loop varSet] Go over uses of var\n";
 #endif
       for (auto* use : uses) {
 #if DEBUG
-        errs() << "[Loop uses] Cur use: " << *use << "\n";
-        errs() << "[Loop uses] Add use to unique\n";
+        errs() << "[Loop uses] Add use: " << *use << "\n";
 #endif
         unique.insert(use);
+
         for (auto* input : inputMap[use]) {
 #if DEBUG
           errs() << "[Loop inputMap[use]] Add src input of use to unique: " << *input << "\n";

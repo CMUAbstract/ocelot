@@ -2,24 +2,23 @@
 
 #include "llvm/Analysis/PostDominators.h"
 
-Instruction* InferFreshCons::insertRegionInst(int toInsertType, Instruction* insertBefore) {
+Instruction* InferFreshCons::insertRegionInst(InsertKind insertKind, Instruction* insertBefore) {
 #if DEBUG
   errs() << "=== insertRegionInst ===\n";
 #endif
   Instruction* call;
   IRBuilder<> builder(insertBefore);
-  // Insert a region start inst
-  if (toInsertType == 0) {
+
+  if (insertKind == Start) {
 #if DEBUG
     errs() << "Insert start before: " << *insertBefore << "\n";
 #endif
     call = builder.CreateCall(this->atomStart);
   } else {
-    // Insert a region end inst
 #if DEBUG
     errs() << "Insert end before: " << *insertBefore << "\n";
 #endif
-    call = builder.CreateCall(atomEnd);
+    call = builder.CreateCall(this->atomEnd);
   }
 
 #if DEBUG
@@ -31,10 +30,11 @@ Instruction* InferFreshCons::insertRegionInst(int toInsertType, Instruction* ins
 // If a direct pred is also a successor, then it's a for loop block
 bool InferFreshCons::loopCheck(BasicBlock* B) {
   auto BName = getSimpleNodeLabel(B);
+
   if (!B->hasNPredecessors(1)) {
     for (auto it = pred_begin(B), et = pred_end(B); it != et; ++it) {
-      BasicBlock* predecessor = *it;
-      StringRef pname = predecessor->getName().drop_front(2);
+      auto* predecessor = *it;
+      auto pname = predecessor->getName().drop_front(2);
       // errs() << "comparing " << pname<< " and " <<bbname <<"\n";
       if (pname.compare_numeric(BName) > 0) {
         //   errs() << "comparison is true\n";
@@ -42,13 +42,14 @@ bool InferFreshCons::loopCheck(BasicBlock* B) {
       }
     }
   }
+
   return false;
 }
 
 // Find the first block after a for loop
 BasicBlock* InferFreshCons::getLoopEnd(BasicBlock* bb) {
-  Instruction* ti = bb->getTerminator();
-  BasicBlock* end = ti->getSuccessor(0);
+  auto* ti = bb->getTerminator();
+  auto* end = ti->getSuccessor(0);
   ti = end->getTerminator();
   // errs() << "end is " << end->getName() << "\n";
   // for switch inst, succ 0 is the fall through
@@ -64,7 +65,7 @@ void InferFreshCons::inferConsistent(std::map<int, inst_vec> consSets) {
 #if DEBUG
     errs() << "[InferConsistent] starting set " << id << "\n";
 #endif
-    addRegion(set, 0);
+    addRegion(set, Consistent);
   }
 }
 
@@ -74,31 +75,31 @@ void InferFreshCons::inferFresh(inst_vec_vec freshSets) {
   errs() << "=== inferFresh ===\n";
 #endif
   // TODO: start with pseudo code structure from design doc
-  for (auto set : freshSets) addRegion(set, 1);
+  for (auto freshSet : freshSets) addRegion(freshSet, Fresh);
 #if DEBUG
   errs() << "*** inferFresh ***\n";
 #endif
 }
 
-// Region type: 0 for Consistent, 1 for Fresh
-void InferFreshCons::addRegion(inst_vec set, int regionType) {
+void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
 #if DEBUG
   errs() << "=== addRegion ===\n";
 #endif
   // A map from set item to bb
-  std::map<Instruction*, BasicBlock*> blocks;
+  std::map<Instruction*, BasicBlock*> targetBlocks;
   // A queue of regions that still need to be processed
   std::queue<std::map<Instruction*, BasicBlock*>> regionsNeeded;
 
 #if DEBUG
   errs() << "Build map from inst to bb\n";
 #endif
-  for (auto* item : set) blocks[item] = item->getParent();
+  for (auto* targetInst : targetInsts)
+    targetBlocks[targetInst] = targetInst->getParent();
 
 #if DEBUG
   errs() << "Add map to regionsNeeded\n";
 #endif
-  regionsNeeded.push(blocks);
+  regionsNeeded.push(targetBlocks);
 
   auto* root = m->getFunction("app");
 
@@ -106,56 +107,53 @@ void InferFreshCons::addRegion(inst_vec set, int regionType) {
   inst_inst_vec regionsFound;
   while (!regionsNeeded.empty()) {
     // Need to raise all blocks in the map until they are the same
-    auto blockMap = regionsNeeded.front();
+    auto blocks = regionsNeeded.front();
     regionsNeeded.pop();
-    // Record which functions have been travelled through
-    std::set<Function*> nested;
+    // Record which functions have been traveled through
+    std::set<Function*> seenFuns;
 
 #if DEBUG
-    errs() << "[Loop regionsNeeded] Check if blocks are in diff functions\n";
+    errs() << "[Loop regionsNeeded] While blocks are in diff functions\n";
 #endif
-    while (!sameFunction(blockMap)) {
+    while (!sameFunction(blocks)) {
       // To think on: does this change?
-      auto* goal = findCandidate(blockMap, root);
+      auto* goal = findCandidate(blocks, root);
 #if DEBUG
-      errs() << "[Loop !sameFunction] Go over each item in set\n";
+      errs() << "[Loop !sameFunction] Go over each targetInst\n";
 #endif
-      for (auto* item : set) {
+      for (auto* targetInst : targetInsts) {
         // not all blocks need to be moved up
-        Function* currFunc = blockMap[item]->getParent();
-        nested.insert(currFunc);
-        if (currFunc != goal) {
+        auto* curFun = blocks[targetInst]->getParent();
+        seenFuns.insert(curFun);
+        if (curFun != goal) {
           // if more than one call:
           // callChain info is already in the starting set
           // so only explore a caller if it's in conSet
           bool first = true;
-          for (User* use : currFunc->users()) {
-            // if (regionType == 1) {
-            if (!(find(set.begin(), set.end(), use) != set.end())) {
+          for (auto* use : curFun->users()) {
+            // if (regionKind == 1) {
+            if (!(find(targetInsts.begin(), targetInsts.end(), use) != targetInsts.end()))
               continue;
-            }
             // errs() << "Use: "<< *use << " is in call chain\n";
             //}
-            Instruction* inst = dyn_cast<Instruction>(use);
+            auto* inst = dyn_cast<Instruction>(use);
 #if DEBUGINFER
             errs() << "DEBUGINFER: examining use: " << *inst << "\n";
 #endif
             if (inst == NULL) {
-              // errs () <<"ERROR: use " << *use << "not an instruction\n";
+              // errs () << "ERROR: use " << *use << "not an instruction\n";
               break;
             }
             // update the original map
             if (first) {
-              blockMap[item] = inst->getParent();
+              blocks[targetInst] = inst->getParent();
               first = false;
             } else {
               // copy the blockmap, update, add to queue
-              Instruction* inst = dyn_cast<Instruction>(use);
+              auto* inst = dyn_cast<Instruction>(use);
               std::map<Instruction*, BasicBlock*> copy;
-              for (auto map : blockMap) {
-                copy[map.first] = map.second;
-              }
-              copy[item] = inst->getParent();
+              for (auto map : blocks) copy[map.first] = map.second;
+              copy[targetInst] = inst->getParent();
               regionsNeeded.push(copy);
             }
           }  // end forall uses
@@ -163,39 +161,45 @@ void InferFreshCons::addRegion(inst_vec set, int regionType) {
       }      // end forall items
     }        // end same function check
 
+    // TODO: shuffle instructions here
+
 // Now, all bbs in the map are in the same function, so we can run
 // dom or post-dom analysis on that function
 #if DEBUG
     errs() << "[Loop regionsNeeded] Start dom tree analysis\n";
 #endif
-    auto* home = blockMap.begin()->second->getParent();
-    if (home == nullptr) {
+
+    auto* homeFun = blocks.begin()->second->getParent();
+    if (homeFun == nullptr) {
 #if DEBUG
       errs() << "[Loop regionsNeeded] No function found\n";
 #endif
       continue;
     }
 #if DEBUG
-    errs() << "[Loop regionsNeeded] Found home fun: " << home->getName() << "\n";
+    errs() << "[Loop regionsNeeded] Found home fun: " << homeFun->getName() << "\n";
 #endif
-    auto& domTree = FAM->getResult<DominatorTreeAnalysis>(*home);
+
+    auto& domTree = FAM->getResult<DominatorTreeAnalysis>(*homeFun);
     // Find the closest point that dominates
-    auto* startDom = blockMap.begin()->second;
-    for (auto& [_, B] : blockMap) {
+    auto* startDom = blocks.begin()->second;
+    for (auto& [_, B] : blocks)
       startDom = domTree.findNearestCommonDominator(B, startDom);
-    }
 #if DEBUG
     errs() << "[Loop regionsNeeded] startDom: " << *startDom << "\n";
 #endif
-// TODO: if an inst in the set is in the bb, we can truncate?
+
+    // TODO: if an inst in the set is in the bb, we can truncate?
+
 #if DEBUG
     errs() << "Start post dom tree analysis\n";
 #endif
+
     // Flip directions for the region end
-    auto& postDomTree = FAM->getResult<PostDominatorTreeAnalysis>(*home);
+    auto& postDomTree = FAM->getResult<PostDominatorTreeAnalysis>(*homeFun);
     // Find the closest point that dominates
-    auto* endDom = blockMap.begin()->second;
-    for (auto map : blockMap) {
+    auto* endDom = blocks.begin()->second;
+    for (auto& [_, block] : blocks) {
 #if DEBUGINFER
       if (endDom != nullptr) {
         errs() << "Finding post dom of: " << getSimpleNodeLabel(map.second) << " and " << getSimpleNodeLabel(endDom) << "\n";
@@ -203,8 +207,9 @@ void InferFreshCons::addRegion(inst_vec set, int regionType) {
         errs() << "endDom is null\n";
       }
 #endif
-      endDom = postDomTree.findNearestCommonDominator(map.second, endDom);
+      endDom = postDomTree.findNearestCommonDominator(block, endDom);
     }
+
 #if DEBUG
     errs() << "[Loop regionsNeeded] endDom: " << *endDom << "\n";
 #endif
@@ -214,9 +219,11 @@ void InferFreshCons::addRegion(inst_vec set, int regionType) {
     } else if (endDom == nullptr) {
       errs() << "[Error] Null endDom\n";
     }
+
     // Need to make the start and end dominate each other as well.
     startDom = domTree.findNearestCommonDominator(startDom, endDom);
     endDom = postDomTree.findNearestCommonDominator(startDom, endDom);
+
 #if DEBUG
     errs() << "[Loop regionsNeeded] After matching scope\n";
     errs() << "[Loop regionsNeeded] startDom: " << *startDom << "\n";
@@ -241,8 +248,8 @@ void InferFreshCons::addRegion(inst_vec set, int regionType) {
 #endif
     // TODO: fallback if endDom is null? Need hyper-blocks, I think
     // possibly can do a truncation check, to lessen the size a little, but could that interfere with compiler optimizations?
-    auto* regionStart = truncate(startDom, true, set, nested);
-    auto* regionEnd = truncate(endDom, false, set, nested);
+    auto* regionStart = truncate(startDom, true, targetInsts, seenFuns);
+    auto* regionEnd = truncate(endDom, false, targetInsts, seenFuns);
     if (regionStart == nullptr) {
       errs() << "[Error] Null startDom after truncation\n";
     } else if (regionEnd == nullptr) {
@@ -262,8 +269,8 @@ void InferFreshCons::addRegion(inst_vec set, int regionType) {
   // each other, so there's no possibility of not running into the start from
   // the end
   auto [regionStart, regionEnd] = findShortest(regionsFound);
-  insertRegionInst(0, regionStart);
-  insertRegionInst(1, regionEnd);
+  insertRegionInst(Start, regionStart);
+  insertRegionInst(End, regionEnd);
   //}//end while regions needed
 
 #if DEBUG
@@ -355,7 +362,6 @@ Instruction* InferFreshCons::truncate(BasicBlock* B, bool forwards, inst_vec set
   return &B->front();
 }
 
-// findCandidate
 Function* InferFreshCons::findCandidate(std::map<Instruction*, BasicBlock*> blockMap, Function* root) {
 #if DEBUG
   errs() << "== findCandidate ===\n";
@@ -374,8 +380,8 @@ Function* InferFreshCons::findCandidate(std::map<Instruction*, BasicBlock*> bloc
   // Easy case: everything is already in the same function
   if (funList.size() == 1) return funList.at(0);
 
-  /* Algo Goal: get the deepest function that still calls (or is) all funcs in funcList.
-   * Consider: multiple calls? Should be dealt with in the add region function -- eventually each caller
+  /* Algo goal: get the deepest function that still calls (or is) all funcs in funcList.
+   * Consider: multiple calls? Should be dealt with in the addRegion -- eventually each caller
    * gets its own region
    */
   Function* goal = nullptr;
@@ -393,7 +399,7 @@ Function* InferFreshCons::findCandidate(std::map<Instruction*, BasicBlock*> bloc
   return goal;
 }
 
-/*Recursive: from a root, returns list of called funcs. */
+// From a root, returns list of called functions.
 std::vector<Function*> InferFreshCons::deepCaller(Function* root, std::vector<Function*>& funList, Function** goal) {
   std::vector<Function*> calledFuncs;
   bool mustIncludeSelf = false;

@@ -13,11 +13,18 @@ struct InferFreshCons {
     atomStart = _as;
     atomEnd = _ae;
   }
+
+  enum RegionKind { Fresh,
+                    Consistent };
+
+  enum InsertKind { Start,
+                    End };
+
   void inferConsistent(std::map<int, inst_vec> allSets);
   void inferFresh(inst_vec_vec allSets);
-  void addRegion(inst_vec conSet, int regType);
+  void addRegion(inst_vec conSet, RegionKind regionKind);
   Function* findCandidate(std::map<Instruction*, BasicBlock*> blocks, Function* root);
-  Instruction* insertRegionInst(int regInst, Instruction* insertBefore);
+  Instruction* insertRegionInst(InsertKind insertKind, Instruction* insertBefore);
   bool sameFunction(std::map<Instruction*, BasicBlock*> blockMap);
   Instruction* truncate(BasicBlock* bb, bool forwards, inst_vec conSet, std::set<Function*> nested);
   std::vector<Function*> deepCaller(Function* root, std::vector<Function*>& funcList, Function** goal);
