@@ -182,14 +182,13 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
 #if DEBUG
     errs() << "[regionsNeeded] Go over all block insts\n";
 #endif
-    // auto* B = blocks.begin()->second;
     std::set<BasicBlock*> seenBlocks;
     for (auto& [_, B] : blocks) {
       if (seenBlocks.find(B) == seenBlocks.end()) {
         seenBlocks.emplace(B);
 
-        std::vector<Instruction*> toDelay;
-        std::vector<Instruction*> toDelete;
+        inst_vec toDelay;
+        inst_set toDelete;
 
         for (auto& I : *B) {
 #if DEBUG
@@ -200,45 +199,46 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
             errs() << "Should be delayed\n";
 #endif
             Instruction *prev, *clone;
+
+            // Clone each untainted instruction to be inserted to
+            // the end of the basic block
             if (isa<BinaryOperator>(I)) {
               if (I.getOpcode() == Instruction::Add)
                 clone = BinaryOperator::Create(Instruction::Add, prev, I.getOperand(1));
               else
                 clone = I.clone();
-            } else if (isa<LoadInst>(I)) {
-              clone = I.clone();
             } else if (auto* ci = dyn_cast<CallInst>(&I)) {
-              clone = CallInst::Create(ci->getCalledFunction(), prev);
+              if (prev != nullptr)
+                clone = CallInst::Create(ci->getCalledFunction(), prev);
             } else if (auto* si = dyn_cast<StoreInst>(&I)) {
               if (prev != nullptr && find(targetInsts.begin(), targetInsts.end(), prev) == targetInsts.end()) {
                 clone = I.clone();
                 clone->setOperand(0, prev);
-                errs() << "yo\n";
               } else
                 clone = I.clone();
             } else
               clone = I.clone();
+
+            // Keep track of the previous instruction to allow LLVM
+            // to remap virtual registers (avoiding <badref>'s)
             prev = clone;
 
-            toDelete.push_back(&I);
+            toDelete.emplace(&I);
             toDelay.push_back(clone);
           }
         }
 
         IRBuilder builder(B);
-        for (auto* d : toDelay) {
-          // #if DEBUG
-          //           errs() << "Delayed: " << *d << "\n";
-          // #endif
-          builder.Insert(d);
-        }
+        // Insert each delayed instruction to the end of the block
+        for (auto* d : toDelay) builder.Insert(d);
 
         auto I = B->begin();
+        // Delete their duplicates earlier in the block
         for (; I != B->end();) {
 #if DEBUG
           errs() << *I << "\n";
 #endif
-          if (find(toDelete.begin(), toDelete.end(), &*I) != toDelete.end()) {
+          if (toDelete.find(&*I) != toDelete.end()) {
 #if DEBUG
             errs() << "Delete\n";
 #endif
