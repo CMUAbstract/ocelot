@@ -1,4 +1,5 @@
 .vscode
 ocelot/AtomicRegionInference/build
+benchmarks/ctests/*.out
 
 .DS_Store

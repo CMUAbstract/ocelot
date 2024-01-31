@@ -4,6 +4,7 @@ target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-macosx12.0.0"
 
 @IO_NAME = global ptr @sense, align 8
+@.str = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define void @atomic_start() #0 {
@@ -37,8 +38,12 @@ define void @log(i32 noundef %x) #0 {
 entry:
   %x.addr = alloca i32, align 4
   store i32 %x, ptr %x.addr, align 4
+  %0 = load i32, ptr %x.addr, align 4
+  %call = call i32 (ptr, ...) @printf(ptr noundef @.str, i32 noundef %0)
   ret void
 }
+
+declare i32 @printf(ptr noundef, ...) #1
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define i32 @tmp() #0 {
@@ -67,7 +72,15 @@ entry:
   ret void
 }
 
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define i32 @main() #0 {
+entry:
+  call void @app()
+  ret i32 0
+}
+
 attributes #0 = { noinline nounwind optnone ssp uwtable(sync) "frame-pointer"="non-leaf" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+crc,+dotprod,+fp-armv8,+fp16fml,+fullfp16,+lse,+neon,+ras,+rcpc,+rdm,+sha2,+sha3,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8.5a,+v8a,+zcm,+zcz" }
+attributes #1 = { "frame-pointer"="non-leaf" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="apple-m1" "target-features"="+aes,+crc,+dotprod,+fp-armv8,+fp16fml,+fullfp16,+lse,+neon,+ras,+rcpc,+rdm,+sha2,+sha3,+v8.1a,+v8.2a,+v8.3a,+v8.4a,+v8.5a,+v8a,+zcm,+zcz" }
 
 !llvm.module.flags = !{!0, !1, !2, !3}
 !llvm.ident = !{!4}

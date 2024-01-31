@@ -34,6 +34,7 @@ typedef std::map<Instruction*, val_vec> inst_vals_map;
 typedef std::map<Instruction*, inst_set> inst_insts_map;
 typedef std::vector<Function*> func_vec;
 typedef std::vector<inst_vec> inst_vec_vec;
+typedef std::map<Instruction*, Instruction*> inst_inst_map;
 
 extern gv_vec gv_list;
 

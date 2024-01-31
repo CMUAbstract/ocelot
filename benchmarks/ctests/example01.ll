@@ -6,6 +6,7 @@ target triple = "arm64-apple-macosx12.0.0"
 @.str = private unnamed_addr constant [7 x i8] c"Fresh\0A\00", align 1
 @.str.1 = private unnamed_addr constant [12 x i8] c"Consistent\0A\00", align 1
 @IO_NAME1 = global ptr @tmp, align 8
+@.str.2 = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
 
 declare i32 @printf(ptr noundef, ...) #0
 
@@ -32,6 +33,8 @@ define void @log(i32 noundef %x) #1 {
 entry:
   %x.addr = alloca i32, align 4
   store i32 %x, ptr %x.addr, align 4
+  %0 = load i32, ptr %x.addr, align 4
+  %call = call i32 (ptr, ...) @printf(ptr noundef @.str.2, i32 noundef %0)
   ret void
 }
 
@@ -45,6 +48,13 @@ entry:
   %0 = load i32, ptr %x, align 4
   call void @log(i32 noundef %0)
   call void @atomic_end()
+  ret i32 0
+}
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define i32 @main() #1 {
+entry:
+  %call = call i32 @app()
   ret i32 0
 }
 

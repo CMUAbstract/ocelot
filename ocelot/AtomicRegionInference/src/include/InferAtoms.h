@@ -17,6 +17,7 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/Transforms/Utils/InstructionNamer.h"
 
 using namespace llvm;
 
@@ -44,6 +45,11 @@ llvmGetPassPluginInfo() {
       .PluginName = "Atomic Region Inference Pass",
       .PluginVersion = "v0.1",
       .RegisterPassBuilderCallbacks = [](PassBuilder& PB) {
+        // PB.registerPipelineParsingCallback(
+        //     [](StringRef PassName, FunctionPassManager& FPM, ...) {
+        //       FPM.addPass(InstructionNamerPass());
+        //       return true;
+        //     });
         PB.registerPipelineStartEPCallback(
             [](ModulePassManager& MPM, OptimizationLevel Level) {
               MPM.addPass(InferAtomsPass());

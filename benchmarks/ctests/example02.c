@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 void Fresh(int x) {}
 void Consistent(int x, int id) {}
 
@@ -9,7 +11,9 @@ int (*IO_NAME)() = sense;
 
 int norm(int t) { return t; }
 
-void log(int x) {}
+void log(int x) {
+  printf("%d\n", x);
+}
 
 int tmp() {
   int t = sense();
@@ -21,4 +25,8 @@ void app() {
   int x = tmp();
   Fresh(x);
   log(x);
+}
+
+int main() {
+  app();
 }

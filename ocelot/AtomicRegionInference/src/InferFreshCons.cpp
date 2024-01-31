@@ -187,7 +187,11 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
       if (seenBlocks.find(B) == seenBlocks.end()) {
         seenBlocks.emplace(B);
 
+        // A mapping from original instructions to their clones
+        inst_inst_map clonedInsts;
+        // Instructions to be delayed till the end of the block
         inst_vec toDelay;
+        // (The original) instructions to be deleted
         inst_set toDelete;
 
         for (auto& I : *B) {
@@ -198,49 +202,66 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
 #if DEBUG
             errs() << "Should be delayed\n";
 #endif
-            Instruction *prev, *clone;
 
-            // Clone each untainted instruction to be inserted to
-            // the end of the basic block
+            Instruction* clone;
+
+            // Clone each untainted instruction to be appended to
+            // the end of the basic block, in the original order
             if (isa<BinaryOperator>(I)) {
-              if (I.getOpcode() == Instruction::Add)
-                clone = BinaryOperator::Create(Instruction::Add, prev, I.getOperand(1));
-              else
-                clone = I.clone();
-            } else if (auto* ci = dyn_cast<CallInst>(&I)) {
-              if (prev != nullptr)
-                clone = CallInst::Create(ci->getCalledFunction(), prev);
-            } else if (auto* si = dyn_cast<StoreInst>(&I)) {
-              if (prev != nullptr && find(targetInsts.begin(), targetInsts.end(), prev) == targetInsts.end()) {
-                clone = I.clone();
-                clone->setOperand(0, prev);
-              } else
-                clone = I.clone();
-            } else
               clone = I.clone();
 
-            // Keep track of the previous instruction to allow LLVM
-            // to remap virtual registers (avoiding <badref>'s)
-            prev = clone;
+              for (int i = 0; i < 2; i++) {
+                if (auto* op = dyn_cast<Instruction>(I.getOperand(i))) {
+                  // Since operands don't get cloned along the eway,
+                  // look up the clone of each operand...
+                  inst_inst_map::iterator it = clonedInsts.find(op);
+                  assert(it != clonedInsts.end());
+                  // ...and overwrite the original operand with it
+                  clone->setOperand(i, it->second);
+                }
+              }
+            } else if (auto* ci = dyn_cast<CallInst>(&I)) {
+              clone = I.clone();
 
+              if (auto* op = dyn_cast<Instruction>(I.getOperand(0))) {
+                inst_inst_map::iterator it = clonedInsts.find(op);
+                assert(it != clonedInsts.end());
+                clone->setOperand(0, it->second);
+              }
+            } else if (isa<StoreInst>(&I)) {
+              clone = I.clone();
+
+              if (auto* op = dyn_cast<Instruction>(I.getOperand(0))) {
+                inst_inst_map::iterator it = clonedInsts.find(op);
+                assert(it != clonedInsts.end());
+                clone->setOperand(0, it->second);
+              }
+            }
+            // e.g., LoadInst
+            else {
+              clone = I.clone();
+            }
+
+            clonedInsts.emplace(&I, clone);
             toDelete.emplace(&I);
             toDelay.push_back(clone);
           }
         }
 
         IRBuilder builder(B);
-        // Insert each delayed instruction to the end of the block
-        for (auto* d : toDelay) builder.Insert(d);
+        // Append each delayed instruction to the end of the block,
+        // in the original order
+        for (auto* I : toDelay) builder.Insert(I);
 
         auto I = B->begin();
-        // Delete their duplicates earlier in the block
+        // Delete the originals
         for (; I != B->end();) {
 #if DEBUG
           errs() << *I << "\n";
 #endif
           if (toDelete.find(&*I) != toDelete.end()) {
 #if DEBUG
-            errs() << "Delete\n";
+            errs() << "Deleted\n";
 #endif
             I = I->eraseFromParent();
           } else
