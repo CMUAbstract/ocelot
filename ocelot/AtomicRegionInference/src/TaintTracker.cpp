@@ -12,7 +12,7 @@ inst_insts_map buildInputs(Module* M) {
 
   for (auto inputInst : inputInsts) {
 #if DEBUG
-    errs() << "[Loop inputInst] orig input: " << *inputInst << "\n";
+    errs() << "[Loop inputInst] inputInst: " << *inputInst << "\n";
 #endif
 
     // Add self to map
@@ -32,24 +32,24 @@ inst_insts_map buildInputs(Module* M) {
 #if DEBUG
       errs() << "=== Loop toExplore ===\n";
 #endif
-      auto* curVal = toExplore.front();
+      auto* curInst = toExplore.front();
       toExplore.pop();
 
-      if (curVal == NULL) continue;
+      if (curInst == NULL) continue;
 
 #if DEBUG
-      errs() << "[Loop toExplore] cur inst: " << *curVal << "\n";
+      errs() << "[Loop toExplore] curInst: " << *curInst << "\n";
 #endif
 
       val_vec interProcFlows;
-      if (curVal == inputInst) {
+      if (curInst == inputInst) {
 #if DEBUG
-        errs() << "[Loop toExplore] cur inst = orig input\n";
-        errs() << "[Loop toExplore] Call traverseLocal with cur inst (tainted), orig input (srcInput), caller (none)\n";
+        errs() << "[Loop toExplore] curInst = inputInst\n";
+        errs() << "[Loop toExplore] Call traverseLocal with curInst (tainted), origInput (srcInput), caller (none)\n";
 #endif
-        interProcFlows = traverseLocal(curVal, inputInst, &taintedInsts, nullptr);
+        interProcFlows = traverseLocal(curInst, inputInst, &taintedInsts, nullptr);
 #if DEBUG
-        errs() << "[Loop toExplore] [cur inst = orig input] Inspect interProcFlows:\n";
+        errs() << "[Loop toExplore][curInst = inputInst] Inspect interProcFlows:\n";
 #endif
         for (auto* vipf : interProcFlows) {
           if (auto* iipf = dyn_cast<Instruction>(vipf)) {
@@ -59,19 +59,19 @@ inst_insts_map buildInputs(Module* M) {
             }
 
 #if DEBUG
-            errs() << "Adding orig input (" << *inputInst << ") to set at " << *iipf << "\n";
+            errs() << "Add inputInst (" << *inputInst << ") to set at " << *iipf << "\n";
 #endif
             taintedInsts[iipf].insert(inputInst);
           }
         }
-      } else if (isa<CallInst>(curVal)) {
+      } else if (isa<CallInst>(curInst)) {
 #if DEBUG
         errs() << "[Loop toExplore] cur inst = CallInst\n";
 #endif
         // Note it will not be iop, even though iop is a call
         // This case handles both returns and pbref
 
-        promotedInputs.push_back(dyn_cast<CallInst>(curVal));
+        promotedInputs.push_back(dyn_cast<CallInst>(curInst));
         auto* next = toExplore.front();
         toExplore.pop();
         // If the next is a return, this was a return flow
@@ -81,11 +81,11 @@ inst_insts_map buildInputs(Module* M) {
 #if DEBUG
           errs() << "[Loop toExplore] cur inst next = Return inst (return flow)\n";
 #endif
-          interProcFlows = traverseLocal(curVal, dyn_cast<CallInst>(curVal), &taintedInsts, nullptr);
+          interProcFlows = traverseLocal(curInst, dyn_cast<CallInst>(curInst), &taintedInsts, nullptr);
           for (Value* vipf : interProcFlows) {
             if (Instruction* iipf = dyn_cast<Instruction>(vipf)) {
               // don't add self
-              if (curVal == vipf) {
+              if (curInst == vipf) {
                 continue;
               }
               if (CallInst* anno_check = dyn_cast<CallInst>(iipf)) {
@@ -95,7 +95,7 @@ inst_insts_map buildInputs(Module* M) {
                   continue;
                 }
               }
-              taintedInsts[iipf].insert(dyn_cast<CallInst>(curVal));
+              taintedInsts[iipf].insert(dyn_cast<CallInst>(curInst));
             }
           }
         } else if (isa<Argument>(next)) {
@@ -105,7 +105,7 @@ inst_insts_map buildInputs(Module* M) {
           // Grab the para corresponding to the argument
           int index = -1;
           int i = 0;
-          CallInst* ci = dyn_cast<CallInst>(curVal);
+          CallInst* ci = dyn_cast<CallInst>(curInst);
 
           if (ci->getCalledFunction() == NULL) continue;
           if (ci->getCalledFunction()->empty()) continue;
@@ -200,7 +200,7 @@ inst_insts_map buildInputs(Module* M) {
             }
             // re nullptr check
             if (fstUse != nullptr) {
-              interProcFlows = traverseLocal(fstUse, dyn_cast<CallInst>(curVal), &taintedInsts, nullptr);
+              interProcFlows = traverseLocal(fstUse, dyn_cast<CallInst>(curInst), &taintedInsts, nullptr);
               for (Value* vipf : interProcFlows) {
                 if (Instruction* iipf = dyn_cast<Instruction>(vipf)) {
                   if (CallInst* anno_check = dyn_cast<CallInst>(iipf)) {
@@ -210,15 +210,15 @@ inst_insts_map buildInputs(Module* M) {
                       continue;
                     }
                   }
-                  taintedInsts[iipf].insert(dyn_cast<CallInst>(curVal));
+                  taintedInsts[iipf].insert(dyn_cast<CallInst>(curInst));
                 }
               }
             }
           }
         }
-      } else if (isa<Argument>(curVal)) {
+      } else if (isa<Argument>(curInst)) {
 #if DEBUG
-        errs() << "[Loop toExplore] cur inst = Argument (tainted arg)\n";
+        errs() << "[Loop toExplore] curInst = Argument (tainted arg)\n";
 #endif
 
         auto* caller = dyn_cast<CallInst>(toExplore.front());
@@ -231,11 +231,11 @@ inst_insts_map buildInputs(Module* M) {
         auto* innerInputInst = dyn_cast<Instruction>(toExplore.front());
         toExplore.pop();
 #if DEBUG
-        errs() << "[Loop toExplore] orig input: " << *innerInputInst << "\n";
-        errs() << "[Loop toExplore] Call traverseLocal with cur inst (tainted), orig input (srcInput), caller\n";
+        errs() << "[Loop toExplore] inputInst: " << *innerInputInst << "\n";
+        errs() << "[Loop toExplore] Call traverseLocal with curInst (tainted), inputInst, caller\n";
 #endif
 
-        interProcFlows = traverseLocal(curVal, innerInputInst, &taintedInsts, caller);
+        interProcFlows = traverseLocal(curInst, innerInputInst, &taintedInsts, caller);
 
 #if DEBUG
         errs() << "[Loop toExplore] Inspect interProcFlows:\n";
@@ -282,26 +282,26 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
   errs() << "=== traverseLocal ===\n";
 #endif
 
-  val_vec interProcSinks;
+  val_vec interProcFlows;
   std::queue<Value*> localDeps;
 
 #if DEBUG
-  errs() << "Add cur inst to localDeps\n";
+  errs() << "Add tainted inst to localDeps\n";
 #endif
   localDeps.push(tainted);
   while (!localDeps.empty()) {
 #if DEBUG
     errs() << "=== Loop localDeps ===\n";
 #endif
-    auto* curVal = localDeps.front();
+    auto* curInst = localDeps.front();
     localDeps.pop();
 #if DEBUG
-    errs() << "[Loop localDeps] cur inst: " << *curVal << "\n";
+    errs() << "[Loop localDeps] curInst: " << *curInst << "\n";
 #endif
     val_vec customUsers;
-    if (auto* si = dyn_cast<StoreInst>(curVal)) {
+    if (auto* si = dyn_cast<StoreInst>(curInst)) {
 #if DEBUG
-      errs() << "[Loop localDeps] cur inst = StoreInst\n";
+      errs() << "[Loop localDeps] curInst = StoreInst\n";
 #endif
       // Add the pointer to deps, as stores have no uses
       // Add info on the store to the map
@@ -314,32 +314,46 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
         seti.insert(srcInput);
         taintedInsts->emplace(si, seti);
       }
-#if DEBUG
-      errs() << "[Loop localDeps] Adding orig input (" << *srcInput << ") to set at cur inst (" << *si << ")\n";
-#endif
+
       // See if it is (or aliases?) one of the function arguments (PBRef comp)
-      for (auto& arg : si->getFunction()->args()) {
-        auto* storePtr = si->getPointerOperand()->stripPointerCasts();
+      auto* storePtr = si->getPointerOperand()->stripPointerCasts();
+      errs() << "[Loop args] storePtr: " << *storePtr << "\n";
 #if DEBUG
-        errs() << "[Loop localDeps] Is ptr being stored to (" << *storePtr << ") = fun arg (" << arg << ")\n";
+      errs() << "[Loop localDeps] Go over fun args\n";
+#endif
+      for (auto& arg : si->getFunction()->args()) {
+#if DEBUG
+        errs() << "[Loop args] arg: " << arg << "\n";
+        // errs() << "[Loop localDeps] Is ptr being stored to (" << *storePtr << ") = fun arg (" << arg << ")\n";
 #endif
         if (storePtr == &arg) {
-          // if taint came from inside any callsite is potentially tainted
+          // storePtr: _x_ = input();
+          // arg: Consistent(_x_, 1);
+#if DEBUG
+          errs() << "[Loop args] storePtr = arg\n";
+#endif
+          // If taint came from inside any callsite is potentially tainted
           if (caller == nullptr) {
+#if DEBUG
+            errs() << "[Loop args] Caller = nullptr";
+#endif
             for (auto calls : si->getFunction()->users()) {
-              interProcSinks.push_back(calls);
-              interProcSinks.push_back(dyn_cast<Value>(&arg));
+              interProcFlows.push_back(calls);
+              interProcFlows.push_back(dyn_cast<Value>(&arg));
               if (auto key = dyn_cast<Instruction>(calls)) {
-                // check to make sure not already visited
+                // Check to make sure not already visited
                 //   taintedInsts->at(key).insert(srcOp);
               }
             }
           } else {
-            // otherwise, just the caller's
-            interProcSinks.push_back(caller);
-            interProcSinks.push_back(dyn_cast<Value>(&arg));
+#if DEBUG
+            errs() << "[Loop args] Caller: " << *caller << "\n";
+#endif
+            // Otherwise, just the caller's
+            interProcFlows.push_back(caller);
+            interProcFlows.push_back(dyn_cast<Value>(&arg));
             if (auto key = dyn_cast<Instruction>(caller)) {
-              // check to make sure not already visited
+              // Check to make sure not already visited
               //        taintedInsts->at(key).insert(srcOp);
             }
           }
@@ -357,14 +371,14 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
         if (auto* useOfStore = dyn_cast<Instruction>(use)) {
           if (storePrecedesUse(useOfStore, si)) {
 #if DEBUG
-            errs() << "[Loop Store Users] store precedes this use, add:" << *useOfStore << "\n";
+            errs() << "[Loop Store Users] Store precedes this use, add:" << *useOfStore << "to customUsers\n";
 #endif
             customUsers.push_back(useOfStore);
           }
         }
       }
       // Update curVal to be the pointer
-      curVal = si->getPointerOperand();
+      curInst = si->getPointerOperand();
 
       // If it's a gepi, see if there are others that occur afterwards
       if (isa<GetElementPtrInst>(si->getPointerOperand())) {
@@ -375,22 +389,22 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
         // check pbref, need to compare op of the gepi, not gepi itself
         for (auto& arg : si->getFunction()->args()) {
 #if DEBUG
-          errs() << " PBRef comp: " << *dyn_cast<Instruction>(curVal)->getOperand(0) << " and " << arg << "\n";
+          errs() << " PBRef comp: " << *dyn_cast<Instruction>(curInst)->getOperand(0) << " and " << arg << "\n";
 #endif
-          if (dyn_cast<Instruction>(curVal)->getOperand(0) == &arg) {
+          if (dyn_cast<Instruction>(curInst)->getOperand(0) == &arg) {
             // if taint came from inside any callsite is potentially tainted
             if (caller == nullptr) {
               for (Value* calls : si->getFunction()->users()) {
-                interProcSinks.push_back(calls);
-                interProcSinks.push_back(dyn_cast<Value>(&arg));
+                interProcFlows.push_back(calls);
+                interProcFlows.push_back(dyn_cast<Value>(&arg));
                 if (Instruction* key = dyn_cast<Instruction>(calls)) {
                   //         taintedInsts->at(key).insert(srcOp);
                 }
               }
             } else {
               // otherwise, just the caller's
-              interProcSinks.push_back(caller);
-              interProcSinks.push_back(dyn_cast<Value>(&arg));
+              interProcFlows.push_back(caller);
+              interProcFlows.push_back(dyn_cast<Value>(&arg));
               if (Instruction* key = dyn_cast<Instruction>(caller)) {
                 //  taintedInsts->at(key).insert(srcOp);
               }
@@ -401,12 +415,12 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
 
     } else {
 #if DEBUG
-      errs() << "[Loop localDeps] cur inst != StoreInst\n";
-      errs() << "[Loop localDeps] Add users of cur inst to customUsers:\n";
-      for (auto* use : curVal->users()) errs() << *use << "\n";
+      errs() << "[Loop localDeps] curInst != StoreInst\n";
+      errs() << "[Loop localDeps] Add users of curInst to customUsers:\n";
+      for (auto* use : curInst->users()) errs() << *use << "\n";
 #endif
       // If not a store, do normal users of curVal
-      customUsers.insert(customUsers.end(), curVal->user_begin(), curVal->user_end());
+      customUsers.insert(customUsers.end(), curInst->user_begin(), curInst->user_end());
     }
 
 #if DEBUG
@@ -428,9 +442,9 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
 #endif
           for (auto calls : ri->getFunction()->users()) {
             if (auto ci = dyn_cast<CallInst>(calls)) {
-              interProcSinks.push_back(calls);
+              interProcFlows.push_back(calls);
               // extra for bookkeeping
-              interProcSinks.push_back(use);
+              interProcFlows.push_back(use);
             }
           }
         } else {
@@ -438,9 +452,9 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
           errs() << "[Loop customUsers] Some caller\n";
 #endif
           // otherwise, just the caller's
-          interProcSinks.push_back(caller);
+          interProcFlows.push_back(caller);
           // extra for bookkeeping
-          interProcSinks.push_back(use);
+          interProcFlows.push_back(use);
         }
       } else if (auto* ci = dyn_cast<CallInst>(use)) {
 #if DEBUG
@@ -475,16 +489,16 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
                 // if taint came from inside any callsite is potentially tainted
                 if (caller == nullptr) {
                   for (Value* calls : ci->getFunction()->users()) {
-                    interProcSinks.push_back(calls);
-                    interProcSinks.push_back(dyn_cast<Value>(&arg));
+                    interProcFlows.push_back(calls);
+                    interProcFlows.push_back(dyn_cast<Value>(&arg));
                     if (Instruction* key = dyn_cast<Instruction>(calls)) {
                       //        taintedInsts->at(key).insert(srcOp);
                     }
                   }
                 } else {
                   // otherwise, just the caller's
-                  interProcSinks.push_back(caller);
-                  interProcSinks.push_back(dyn_cast<Value>(&arg));
+                  interProcFlows.push_back(caller);
+                  interProcFlows.push_back(dyn_cast<Value>(&arg));
                   if (Instruction* key = dyn_cast<Instruction>(caller)) {
                     //      taintedInsts->at(key).insert(srcOp);
                   }
@@ -532,22 +546,24 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
         }
 
         unsigned int arg_num = ci->arg_size();
+        auto funName = calledFun->getName();
 #if DEBUG
-        errs() << "[Loop customUsers] Find tainted arg of " << calledFun->getName() << "\n";
+        errs() << "[Loop customUsers] Find tainted arg of " << funName << "\n";
 #endif
-        // Find the index of the tainted argument
+        // Find the param index of the tainted argument
         for (unsigned int i = 0; i < arg_num; i++) {
           auto* arg = ci->getArgOperand(i);
-          if (arg == curVal) {
-            auto funArg = calledFun->arg_begin() + i;
+          if (arg == curInst) {
+            auto param = calledFun->arg_begin() + i;
 #if DEBUG
-            errs() << "Found tainted arg: " << *arg << ", add fun arg (" << *funArg << "), the use (" << *ci << "), and orig input (" << *srcInput << ") to interProcFlows\n";
+            errs() << "[Loop customUsers] Found tainted arg of " << funName << ": " << *arg << "\n";
+            errs() << "[Loop customUsers] Add to interProcFlows the corresp. param " << *param << ", the call " << *ci << ", and srcInput " << *srcInput << "\n";
 #endif
-            interProcSinks.push_back(funArg);
+            interProcFlows.push_back(param);
             // MUST also push back the call inst.
-            interProcSinks.push_back(ci);
+            interProcFlows.push_back(ci);
             // MUST also push back the current srcInput
-            interProcSinks.push_back(srcInput);
+            interProcFlows.push_back(srcInput);
             if (auto* key = dyn_cast<Instruction>(ci)) {
               //  taintedInsts->at(key).insert(srcOp);
             }
@@ -556,8 +572,10 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
         }
       } else if (auto* iUse = dyn_cast<Instruction>(use)) {
 #if DEBUG
-        errs() << "[Loop customUsers] use != ReturnInst & use != CallInst\n";
+        errs() << "[Loop customUsers] use != ReturnInst & use != CallInst:\n";
+        errs() << *iUse << "\n";
 #endif
+
         if (iUse->isTerminator()) {
           if (iUse->getNumSuccessors() > 1) {
 // Add control deps off of a branch.
@@ -589,7 +607,7 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
 #if DEBUG
   errs() << "*** traverseLocal ***\n";
 #endif
-  return interProcSinks;
+  return interProcFlows;
 }
 
 inst_vec findInputInsts(Module* M) {
@@ -615,7 +633,6 @@ inst_vec findInputInsts(Module* M) {
                   errs() << "Found IO call: " << I << "\n";
 #endif
                   inputInsts.push_back(&I);
-                  break;
                 }
               }
             }

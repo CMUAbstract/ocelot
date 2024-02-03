@@ -34,3 +34,11 @@ void printInsts(const inst_vec& iv) {
     errs() << *inst << "\n";
   }
 }
+
+void printIntInsts(const std::map<int, inst_vec>& iim) {
+  for (auto& [id, insts] : iim) {
+    errs() << id << " ->\n";
+    printInsts(insts);
+    errs() << "\n";
+  }
+}

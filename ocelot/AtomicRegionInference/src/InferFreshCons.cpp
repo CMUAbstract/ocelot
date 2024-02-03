@@ -60,10 +60,9 @@ BasicBlock* InferFreshCons::getLoopEnd(BasicBlock* bb) {
 
 // Top level region inference function -- could flatten later
 void InferFreshCons::inferConsistent(std::map<int, inst_vec> consSets) {
-  // TODO: start with pseudo code structure from design doc
-  for (auto [id, set] : consSets) {
+  for (auto& [id, set] : consSets) {
 #if DEBUG
-    errs() << "[InferConsistent] starting set " << id << "\n";
+    errs() << "[InferConsistent] Adding region for set " << id << "\n";
 #endif
     addRegion(set, Consistent);
   }
@@ -74,7 +73,6 @@ void InferFreshCons::inferFresh(inst_vec_vec freshSets) {
 #if DEBUG
   errs() << "=== inferFresh ===\n";
 #endif
-  // TODO: start with pseudo code structure from design doc
   for (auto freshSet : freshSets) addRegion(freshSet, Fresh);
 #if DEBUG
   errs() << "*** inferFresh ***\n";
@@ -220,7 +218,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
                   clone->setOperand(i, it->second);
                 }
               }
-            } else if (auto* ci = dyn_cast<CallInst>(&I)) {
+            } else if (isa<CallInst>(&I)) {
               clone = I.clone();
 
               if (auto* op = dyn_cast<Instruction>(I.getOperand(0))) {
@@ -338,9 +336,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
     } else if (endDom == nullptr) {
       errs() << "[Error] Null endDom after scope merge\n";
     }
-#if DEBUG
-    errs() << "[Loop regionsNeeded] Insert insts\n";
-#endif
+
     // TODO: fallback if endDom is null? Need hyper-blocks, I think
     // possibly can do a truncation check, to lessen the size a little, but could that interfere with compiler optimizations?
     auto* regionStart = truncate(startDom, true, targetInsts, seenFuns);
@@ -381,15 +377,13 @@ Instruction* InferFreshCons::truncate(BasicBlock* B, bool forwards, inst_vec set
 
 #if DEBUG
   errs() << "Set:\n";
-  for (auto& inst : set)
-    errs() << *inst << "\n";
+  printInsts(set);
 #endif
 
   // Truncate the front
   if (forwards) {
 #if DEBUG
-    errs() << "Truncate startDom\n";
-    errs() << "Go over each inst\n";
+    errs() << "Truncate startDom, go over each inst\n";
 #endif
     for (auto& I : *B) {
       // Stop at first inst in bb that is in the set.
@@ -414,11 +408,10 @@ Instruction* InferFreshCons::truncate(BasicBlock* B, bool forwards, inst_vec set
   }
 
 #if DEBUG
-  errs() << "Truncate endDom\n";
-  errs() << "Go over each inst in reverse\n";
+  errs() << "Truncate endDom, go over each inst in reverse\n";
 #endif
   // Reverse directions if not forwards
-  Instruction* prev = NULL;
+  Instruction* prev;
   for (auto I = B->rbegin(), rend = B->rend(); I != rend; I++) {
     auto* inst = &*I;
     if (find(set.begin(), set.end(), inst) != set.end()) {
@@ -427,7 +420,7 @@ Instruction* InferFreshCons::truncate(BasicBlock* B, bool forwards, inst_vec set
 #endif
       // Need to return the previous inst (next in forwards),
       // as it should be inserted before the returned inst
-      if (prev == NULL) {
+      if (prev == nullptr) {
         // Only happens if use is a ret inst, which is a scope use to make the branching
         // work, not an actual one, so this is safe
         return inst;
@@ -585,7 +578,7 @@ inst_inst_pair InferFreshCons::findShortest(inst_inst_vec regionsFound) {
     // Get the max length from the bb to the end instruction
     std::vector<BasicBlock*> v;
     int endLength = getSubLength(startParent, end, v);
-    // Substract the prefix before the start inst
+    // Subtract the prefix before the start inst
     endLength -= prefixLength;
 #if DEBUG
     errs() << "[Loop regionsFound] Region length " << endLength << "\n";

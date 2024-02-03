@@ -30,6 +30,8 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
   std::map<int, inst_vec> consVars;
   inst_vec_vec freshVars;
   inst_insts_map inputMap = buildInputs(this->M);
+  errs() << "inputMap:\n";
+  printInstInsts(inputMap);
   inst_vec toDelete;
   getAnnotations(&consVars, &freshVars, inputMap, &toDelete);
   // TODO: need to add unique point of call chain prefix to cons set
@@ -90,47 +92,60 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
       for (auto& I : B) {
         if (auto* ci = dyn_cast<CallInst>(&I)) {
 #if DEBUG
-          errs() << "[Loop Inst] cur inst = CallInst\n";
+          errs() << "[Loop Inst] Found call: " << *ci << "\n";
 #endif
           auto* fun = ci->getCalledFunction();
           // Various empty or null checks
           if (fun == NULL || fun->empty() || !fun->hasName()) continue;
           // Consistent and FreshConsistent
+          // TODO: Fix FreshConsistent
           if (isAnnot(fun->getName()) && !fun->getName().equals("Fresh")) {
-#if DEBUG
-            errs() << "[Loop Inst] Calls Consistent/FreshConsistent\n";
-#endif
             toDelete->push_back(ci);
-            // First para is var, second is id
             int setID;
             // Bit cast use of x, then value operand of store
-            Instruction* var = dyn_cast<Instruction>(ci->getOperand(0));
-
+            auto* var = dyn_cast<Instruction>(ci->getOperand(0));
             if (var == NULL) continue;
-            // errs() << "New consistent annot. with " << *var<<"\n";
-            Value* id = ci->getOperand(1);
-            if (ConstantInt* cint = dyn_cast<ConstantInt>(id)) {
+#if DEBUG
+            errs() << "Cons. annot. for: " << *var << "\n";
+#endif
+
+            auto* id = ci->getOperand(1);
+            if (auto* cint = dyn_cast<ConstantInt>(id)) {
               setID = cint->getSExtValue();
+#if DEBUG
+              errs() << "In set with label: " << setID << "\n";
+#endif
             }
+
             std::queue<Value*> customUsers;
             std::set<Instruction*> v;
             // v.emplace(ci);
             // in case var itself is iOp
-            for (Instruction* iOp : inputMap[var]) {
-              v.emplace(iOp);
+#if DEBUG
+            errs() << "Add to v inputs assoc. w/ Cons. var:\n";
+#endif
+            for (auto* input : inputMap[var]) {
+#if DEBUG
+              errs() << "Input: " << *input << "\n";
+#endif
+              v.emplace(input);
             }
 
             // customUsers.push(var);
-            for (Value* use : var->users()) {
-              // don't push the annotation
-              if (use == ci) {
-                continue;
-              }
-              // errs() << "DEBUG: pushing use of var: " << *use << "\n";
+#if DEBUG
+            errs() << "Collect uses of Cons. var:\n";
+#endif
+            for (auto* use : var->users()) {
+              // Don't push the annotation
+              if (use == ci) continue;
+#if DEBUG
+              errs() << "Use: " << *use << "\n";
+#endif
               customUsers.push(use);
             }
+
             while (!customUsers.empty()) {
-              Value* use = customUsers.front();
+              auto* use = customUsers.front();
               customUsers.pop();
               // errs() << "DEBUG: use is " << *use << " of var " << *var<<"\n";
               if (Instruction* instUse = dyn_cast<Instruction>(use)) {
@@ -168,34 +183,67 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
                 }
               }
             }
-            // last case
-            if (v.empty()) {
-              // some entries have a first link with ci, not var
 
-              for (Instruction* iOp : inputMap[ci]) {
+            // Last case
+            if (v.empty()) {
+#if DEBUG
+              errs() << "v empty, go over inputs assoc. w/ Cons. annot.:\n";
+#endif
+              // Some entries have a first link with ci, not var
+              for (auto* input : inputMap[ci]) {
+#if DEBUG
+                errs() << "Input: " << *input << "\n";
+#endif
                 if (inputMap[ci].size() == 1) {
-                  for (Instruction* origLink : inputMap[iOp]) {
+#if DEBUG
+                  errs() << "Set of assoc. inputs is a singleton\n";
+#endif
+                  for (auto* origLink : inputMap[input]) {
+#if DEBUG
+                    errs() << "Add to v the original input: " << *origLink << "\n";
+#endif
                     v.emplace(origLink);
                   }
                 } else {
-                  v.emplace(iOp);
+#if DEBUG
+                  errs() << "Set of assoc. input isn't a singleton, add to v the input\n";
+#endif
+                  v.emplace(input);
                 }
               }
             }
-            // for later deletion purposes
+
+            // For later deletion purposes
+#if DEBUG
+            errs() << "Remove inputs assoc. w/ Cons. annot.\n";
+#endif
             inputMap.erase(ci);
 
             if (!v.empty()) {
-              inst_vec temp;
-              for (Instruction* item : v) {
-                temp.push_back(item);
+#if DEBUG
+              errs() << "v not empty\n";
+#endif
+              inst_vec tmp;
+#if DEBUG
+              errs() << "Add each item in v to tmp:\n";
+#endif
+              for (auto* item : v) {
+#if DEBUG
+                errs() << "Item: " << *item << "\n";
+#endif
+                tmp.push_back(item);
               }
-              // add the collected list to the map
+
+              // Add the collected list to the map
               if (consVars->find(setID) != consVars->end()) {
-                consVars->at(setID).insert(consVars->at(setID).end(), temp.begin(), temp.end());
+                consVars->at(setID).insert(consVars->at(setID).end(), tmp.begin(), tmp.end());
               } else {
-                consVars->emplace(setID, temp);
+                consVars->emplace(setID, tmp);
               }
+#if DEBUG
+              errs() << "Add tmp items to consVars: \n";
+              printIntInsts(*consVars);
+#endif
             }
           } else if (fun->getName().equals("Fresh")) {
 #if DEBUG
@@ -247,10 +295,7 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
                   }
                 }
               }
-            } else {
-              // errs() << "error casting\n";
             }
-            // errs() << "New Fresh annot. with " << *var<<"\n";
             // v.push_back(ci);
 
 #if DEBUG
@@ -341,33 +386,71 @@ void InferAtomsPass::removeAnnotations(inst_vec* toDelete) {
   }
 }
 
-/*Given the starting point annotations of conSets, find the
-deepest unique point of the call chain*/
+// Given the starting point annotations of conSets, find the
+// deepest unique point of the call chain
 std::map<int, inst_vec> InferAtomsPass::collectCons(std::map<int, inst_vec> startingPoints, inst_insts_map inputMap) {
+#if DEBUG
+  errs() << "=== collectCons ===\n";
+#endif
   std::map<int, inst_vec> toReturn;
-  for (std::pair<int, inst_vec> iv : startingPoints) {
+
+#if DEBUG
+  errs() << "Go over all cons. sets\n";
+#endif
+  for (auto& [id, starts] : startingPoints) {
+#if DEBUG
+    errs() << "Go over cons. set " << id << "\n";
+#endif
     std::set<Instruction*> unique;
     std::map<Instruction*, std::set<Instruction*>> callChains;
-    // each item should be the starting point from a different annot
-    for (Instruction* item : iv.second) {
-#if DEBUG
-      errs() << "Starting point: " << *item << "\n";
-#endif
-      // add self to call chain
-      callChains[item].insert(item);
 
-      for (Instruction* iOp : inputMap[item]) {
+    // Each item should be the starting point from a different annot
+    for (auto* start : starts) {
+#if DEBUG
+      errs() << "Starting point: " << *start << "\n";
+#endif
+      // Add self to call chain
+#if DEBUG
+      errs() << "Add starting point to call chain\n";
+#endif
+      callChains[start].insert(start);
+
+#if DEBUG
+      errs() << "Go over inputs assoc. w/ starting point:\n";
+#endif
+      for (auto* input : inputMap[start]) {
         //    unique.insert(iOp);
-        callChains[item].insert(iOp);
+#if DEBUG
+        errs() << "Input: " << *input << "\n";
+        errs() << "Add input to call chain\n";
+#endif
+        callChains[start].insert(input);
+
         std::queue<Instruction*> toExplore;
-        toExplore.push(iOp);
+#if DEBUG
+        errs() << "Add input to toExplore, go over toExplore\n";
+#endif
+        toExplore.push(input);
+
         while (!toExplore.empty()) {
-          Instruction* curr = toExplore.front();
+          auto* cur = toExplore.front();
           toExplore.pop();
-          for (Instruction* intermed : inputMap[curr]) {
-            if (!(find(callChains[item].begin(), callChains[item].end(), intermed) != callChains[item].end())) {
-              callChains[item].insert(intermed);
+#if DEBUG
+          errs() << "Exploring cur: " << *cur << "\n";
+          errs() << "Go over inputs assoc. w/ cur: " << *cur << "\n";
+#endif
+
+          for (auto* intermed : inputMap[cur]) {
+#if DEBUG
+            errs() << "intermed: " << *intermed << "\n";
+#endif
+            if (find(callChains[start].begin(), callChains[start].end(), intermed) == callChains[start].end()) {
+              callChains[start].insert(intermed);
               toExplore.push(intermed);
+            } else {
+#if DEBUG
+              errs() << "intermed already in call chain\n";
+#endif
             }
           }
         }
@@ -375,57 +458,78 @@ std::map<int, inst_vec> InferAtomsPass::collectCons(std::map<int, inst_vec> star
       }  // finish constructing call chain for one annot. in the set
 
     }  // constructed call chains for ALL annot. in the set.
-    // now check the call chain
+       // now check the call chain
 
     // int index = 0;
     // map<Instruction*,bool> foundUniquePoint;
     // clean up the call chains
 
-    for (auto ccmap : callChains) {
-      for (Instruction* possibility : ccmap.second) {
-        // if the link is in the same function, then continue
-        // errs() << "examining possibility: " << *possibility << "\n";
-        bool sf = false;
-        for (Instruction* link : inputMap[possibility]) {
-          // errs() << "next link is" << *link << "\n";
-          if ((link != possibility) && link->getFunction() == possibility->getFunction()) {
-            sf = true;
-          }
-        }
-        if (sf) {
+#if DEBUG
+    errs() << "Finished building call chains, go over them\n";
+#endif
+    for (auto callChain : callChains) {
+#if DEBUG
+      errs() << "Next chain\n";
+#endif
+      auto& [id, chain] = callChain;
+      for (auto* inst : chain) {
+#if DEBUG
+        errs() << "Cur point along chain: " << *inst << "\n";
+#endif
+        bool isSameFun = false;
+        for (auto* link : inputMap[inst])
+          isSameFun = ((link != inst) && link->getFunction() == inst->getFunction());
+        if (isSameFun) {
+#if DEBUG
+          errs() << "Continue if the link is in the same function\n";
+#endif
           continue;
         }
+
         bool isUnique = true;
-        for (auto ccmapNest : callChains) {
-          // if self then skip
-          if (ccmapNest == ccmap) {
-            continue;
-          }
-          // otherwise check if this map also contains the possibility
-          if (find(ccmapNest.second.begin(), ccmapNest.second.end(), possibility) != ccmapNest.second.end()) {
+        for (auto otherCallChain : callChains) {
+          // Skip if self
+          if (otherCallChain == callChain) continue;
+          auto& [_, otherChain] = otherCallChain;
+          // Otherwise check if this map also contains inst
+          if (find(otherChain.begin(), otherChain.end(), inst) != otherChain.end()) {
             isUnique = false;
             break;
           }
         }
+
         if (isUnique) {
-          unique.insert(possibility);
-          //  errs() << "Found unique!" << *possibility << "\n";
-        } else {
-          // try another poss.
-          continue;
+          unique.insert(inst);
+#if DEBUG
+          errs() << "Found unique point along chain: " << *inst << "\n";
+#endif
         }
       }
     }
 
     inst_vec v;
-    for (Instruction* item2 : unique) {
-      if (!isa<AllocaInst>(item2)) {
-        v.push_back(item2);
+#if DEBUG
+    errs() << "Go over unique insts\n";
+#endif
+    for (auto* inst : unique) {
+      if (!isa<AllocaInst>(inst)) {
+#if DEBUG
+        errs() << "Unique inst != AllocaInst, add to v: " << *inst << "\n";
+#endif
+        v.push_back(inst);
       }
     }
-    toReturn[iv.first] = v;
+
+#if DEBUG
+    errs() << "Add v to toReturn at ID " << id << ": \n";
+    printInsts(v);
+#endif
+    toReturn[id] = v;
   }  // end starting point check
 
+#if DEBUG
+  errs() << "*** collectCons ***\n";
+#endif
   return toReturn;
 }
 

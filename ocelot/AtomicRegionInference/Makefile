@@ -4,6 +4,7 @@ all:
 	make eg1
 	make eg2
 	make eg3
+	make eg4
 
 eg1:
 	TEST=example01 make test
@@ -11,6 +12,8 @@ eg2:
 	TEST=example02 make test
 eg3:
 	TEST=example03 make test
+eg4:
+	TEST=example04 make test
 
 run_eg1:
 	TEST=example01 make run
@@ -18,6 +21,8 @@ run_eg2:
 	TEST=example02 make run
 run_eg3:
 	TEST=example03 make run
+run_eg4:
+	TEST=example04 make run
 
 test:
 	$(MAKE) -C build
