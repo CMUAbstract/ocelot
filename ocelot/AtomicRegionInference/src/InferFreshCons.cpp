@@ -196,9 +196,10 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
 #if DEBUG
           errs() << I << "\n";
 #endif
-          if (!isa<AllocaInst>(I) && find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end()) {
+          if (!isa<AllocaInst>(I)) {
+            auto shouldDelay = find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end();
 #if DEBUG
-            errs() << "Should be delayed\n";
+            errs() << "  Should" << (shouldDelay ? " " : " NOT ") << "be delayed\n";
 #endif
 
             Instruction* clone;
@@ -219,9 +220,13 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
                 }
               }
             } else if (isa<CallInst>(&I)) {
-              clone = I.clone();
+              // In case I is an IO function call, we don't clone it
+              // and instead map it to itself for referencing later
 
-              if (auto* op = dyn_cast<Instruction>(I.getOperand(0))) {
+              clone = shouldDelay ? I.clone() : &I;
+
+              if (shouldDelay && I.getNumOperands() > 1) {
+                auto* op = dyn_cast<Instruction>(I.getOperand(0));
                 inst_inst_map::iterator it = clonedInsts.find(op);
                 assert(it != clonedInsts.end());
                 clone->setOperand(0, it->second);
@@ -234,15 +239,17 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
                 assert(it != clonedInsts.end());
                 clone->setOperand(0, it->second);
               }
-            }
-            // e.g., LoadInst
-            else {
+            } else {
+              // E.g., LoadInst
               clone = I.clone();
             }
 
             clonedInsts.emplace(&I, clone);
-            toDelete.emplace(&I);
-            toDelay.push_back(clone);
+
+            if (shouldDelay) {
+              toDelete.emplace(&I);
+              toDelay.push_back(clone);
+            }
           }
         }
 
