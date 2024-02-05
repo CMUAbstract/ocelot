@@ -45,15 +45,15 @@ entry:
   call void @atomic_start()
   %call = call i32 @input()
   store i32 %call, ptr %x, align 4
-  store i32 1, ptr %y, align 4
-  %0 = load i32, ptr %y, align 4
-  %add = add nsw i32 %0, 1
-  store i32 %add, ptr %z, align 4
-  %1 = load i32, ptr %z, align 4
-  call void @log(i32 noundef %1)
-  %2 = load i32, ptr %x, align 4
-  call void @log(i32 noundef %2)
+  %0 = load i32, ptr %x, align 4
+  call void @log(i32 noundef %0)
   call void @atomic_end()
+  store i32 1, ptr %y, align 4
+  %1 = load i32, ptr %y, align 4
+  %2 = add nsw i32 %1, 1
+  store i32 %2, ptr %z, align 4
+  %3 = load i32, ptr %z, align 4
+  call void @log(i32 noundef %3)
   ret void
 }
 

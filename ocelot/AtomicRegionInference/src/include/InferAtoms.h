@@ -29,7 +29,7 @@ struct InferAtomsPass : public PassInfoMixin<InferAtomsPass> {
   void getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_vec* freshVars, inst_insts_map inputMap, inst_vec* toDelete);
   inst_vec_vec collectFresh(inst_vec_vec startingPoints, inst_insts_map info);
   std::map<int, inst_vec> collectCons(std::map<int, inst_vec> startingPointa, inst_insts_map inputMap);
-  void removeAnnotations(inst_vec* toDelete);
+  void removeAnnotations(inst_vec& toDelete);
   void setModule(Module* _M) { M = _M; }
 
  private:

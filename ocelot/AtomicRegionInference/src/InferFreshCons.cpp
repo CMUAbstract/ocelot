@@ -59,27 +59,36 @@ BasicBlock* InferFreshCons::getLoopEnd(BasicBlock* bb) {
 }
 
 // Top level region inference function -- could flatten later
-void InferFreshCons::inferConsistent(std::map<int, inst_vec> consSets) {
+void InferFreshCons::inferCons(std::map<int, inst_vec> consSets, inst_vec_vec* freshSets, inst_vec* toDeleteAnnots) {
+#if DEBUG
+  errs() << "=== inferConsistent ===\n";
+#endif
   for (auto& [id, set] : consSets) {
 #if DEBUG
     errs() << "[InferConsistent] Adding region for set " << id << "\n";
 #endif
-    addRegion(set, Consistent);
+    addRegion(set, freshSets, toDeleteAnnots);
   }
+#if DEBUG
+  errs() << "*** inferConsistent ***\n";
+#endif
 }
 
 // The only difference is outer map vs outer vec
-void InferFreshCons::inferFresh(inst_vec_vec freshSets) {
+void InferFreshCons::inferFresh(inst_vec_vec freshSets, inst_vec* toDeleteAnnots) {
 #if DEBUG
   errs() << "=== inferFresh ===\n";
 #endif
-  for (auto freshSet : freshSets) addRegion(freshSet, Fresh);
+
+  for (auto freshSet : freshSets) {
+    addRegion(freshSet, nullptr, toDeleteAnnots);
+  }
 #if DEBUG
   errs() << "*** inferFresh ***\n";
 #endif
 }
 
-void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
+void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_vec* toDeleteAnnots) {
 #if DEBUG
   errs() << "=== addRegion ===\n";
 #endif
@@ -129,11 +138,8 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
           // so only explore a caller if it's in conSet
           bool first = true;
           for (auto* use : curFun->users()) {
-            // if (regionKind == 1) {
             if (!(find(targetInsts.begin(), targetInsts.end(), use) != targetInsts.end()))
               continue;
-            // errs() << "Use: "<< *use << " is in call chain\n";
-            //}
             auto* inst = dyn_cast<Instruction>(use);
 #if DEBUGINFER
             errs() << "DEBUGINFER: examining use: " << *inst << "\n";
@@ -190,7 +196,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
         // Instructions to be delayed till the end of the block
         inst_vec toDelay;
         // (The original) instructions to be deleted
-        inst_set toDelete;
+        inst_vec toDelete;
 
         for (auto& I : *B) {
 #if DEBUG
@@ -247,7 +253,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
             clonedInsts.emplace(&I, clone);
 
             if (shouldDelay) {
-              toDelete.emplace(&I);
+              toDelete.push_back(&I);
               toDelay.push_back(clone);
             }
           }
@@ -258,19 +264,49 @@ void InferFreshCons::addRegion(inst_vec targetInsts, RegionKind regionKind) {
         // in the original order
         for (auto* I : toDelay) builder.Insert(I);
 
+#if DEBUG
+        errs() << "Delete originals:\n";
+#endif
         auto I = B->begin();
         // Delete the originals
         for (; I != B->end();) {
 #if DEBUG
           errs() << *I << "\n";
 #endif
-          if (toDelete.find(&*I) != toDelete.end()) {
+          if (find(toDelete.begin(), toDelete.end(), &*I) != toDelete.end()) {
 #if DEBUG
             errs() << "Deleted\n";
 #endif
             I = I->eraseFromParent();
           } else
             I++;
+        }
+
+        // Sync freshSets
+        if (other != nullptr) {
+          for (auto& set : *other) {
+            for (size_t i = 0; i < set.size(); i++) {
+              auto it = find(toDelete.begin(), toDelete.end(), set[i]);
+              if (it != toDelete.end()) {
+                auto idx = std::distance(toDelete.begin(), it);
+                auto* newInst = toDelay[idx];
+                set[i] = newInst;
+              }
+            }
+          }
+        }
+
+        // Sync toDelete
+        if (toDeleteAnnots != nullptr) {
+          for (size_t i = 0; i < toDeleteAnnots->size(); i++) {
+            auto* annot = toDeleteAnnots->at(i);
+            auto it = find(toDelete.begin(), toDelete.end(), annot);
+            if (it != toDelete.end()) {
+              auto idx = std::distance(toDelete.begin(), it);
+              auto* newAnnot = toDelay[idx];
+              toDeleteAnnots->at(i) = newAnnot;
+            }
+          }
         }
 
 #if DEBUG
@@ -382,10 +418,10 @@ Instruction* InferFreshCons::truncate(BasicBlock* B, bool forwards, inst_vec set
   errs() << "=== truncate ===\n";
 #endif
 
-#if DEBUG
-  errs() << "Set:\n";
-  printInsts(set);
-#endif
+  // #if DEBUG
+  //   errs() << "Set:\n";
+  //   printInsts(set);
+  // #endif
 
   // Truncate the front
   if (forwards) {
@@ -660,7 +696,18 @@ int InferFreshCons::getSubLength(BasicBlock* B, Instruction* end, std::vector<Ba
 
 bool InferFreshCons::sameFunction(std::map<Instruction*, BasicBlock*> blockMap) {
   auto* BComp = blockMap.begin()->second->getParent();
-  for (auto& [_, B] : blockMap)
-    if (B->getParent() != BComp) return false;
+
+  for (auto& [I, B] : blockMap) {
+    if (B->getParent() != BComp) {
+#if DEBUG
+      errs() << "Blocks are NOT in same fun\n";
+#endif
+      return false;
+    }
+  }
+
+#if DEBUG
+  errs() << "Blocks are in same fun\n";
+#endif
   return true;
 }

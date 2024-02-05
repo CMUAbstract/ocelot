@@ -32,21 +32,21 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
   inst_insts_map inputMap = buildInputs(this->M);
   errs() << "inputMap:\n";
   printInstInsts(inputMap);
-  inst_vec toDelete;
-  getAnnotations(&consVars, &freshVars, inputMap, &toDelete);
-  // TODO: need to add unique point of call chain prefix to cons set
-
-#if DEBUG
-  errs() << "Initial Fresh:\n";
-  for (auto& insts : freshVars)
-    for (auto* inst : insts) errs() << *inst << "\n";
-#endif
+  inst_vec toDeleteAnnots;
+  getAnnotations(&consVars, &freshVars, inputMap, &toDeleteAnnots);
+  // TODO: Need to add unique point of call chain prefix to cons set
 
 #if DEBUG
   errs() << "Initial Consistent:\n";
   for (auto& [_, insts] : consVars) {
     for (auto* inst : insts) errs() << *inst << "\n";
   }
+#endif
+
+#if DEBUG
+  errs() << "Initial Fresh:\n";
+  for (auto& insts : freshVars)
+    for (auto* inst : insts) errs() << *inst << "\n";
 #endif
 
 #if DEBUG
@@ -58,13 +58,13 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
   auto allFresh = collectFresh(freshVars, inputMap);
 
 #if DEBUG
-  errs() << "Fresh after collect: \n";
-  for (auto& varSet : allFresh)
-    for (auto* var : varSet) errs() << *var << "\n";
+  errs() << "Fresh sets after collect: \n";
+  for (auto& freshSet : allFresh)
+    for (auto* inst : freshSet) errs() << *inst << "\n";
 #endif
 
 #if DEBUG
-  errs() << "Consistent after collect: \n";
+  errs() << "Cons. sets after collect: \n";
   for (auto& [_, insts] : allConsSets)
     for (auto* inst : insts) errs() << *inst << "\n";
 #endif
@@ -72,11 +72,11 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
   // Consistent first
   InferFreshCons* ci = new InferFreshCons(&FAM, &M, atomStart, atomEnd);
 
-  ci->inferConsistent(allConsSets);
-  ci->inferFresh(allFresh);
+  ci->inferCons(allConsSets, &allFresh, &toDeleteAnnots);
+  ci->inferFresh(allFresh, &toDeleteAnnots);
 
   // Delete annotations
-  removeAnnotations(&toDelete);
+  removeAnnotations(toDeleteAnnots);
 
   return PreservedAnalyses::none();
 }
@@ -97,9 +97,10 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
           auto* fun = ci->getCalledFunction();
           // Various empty or null checks
           if (fun == NULL || fun->empty() || !fun->hasName()) continue;
-          // Consistent and FreshConsistent
-          // TODO: Fix FreshConsistent
-          if (isAnnot(fun->getName()) && !fun->getName().equals("Fresh")) {
+          auto funName = fun->getName();
+          // Consistent & FreshConsistent
+          if (isAnnot(funName) && !funName.equals("Fresh")) {
+            errs() << "getAnnot: " << ci << "\n";
             toDelete->push_back(ci);
             int setID;
             // Bit cast use of x, then value operand of store
@@ -245,12 +246,18 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
               printIntInsts(*consVars);
 #endif
             }
-          } else if (fun->getName().equals("Fresh")) {
+          }
+
+          // Fresh & FreshConsistent
+          if (isAnnot(funName) && !funName.equals("Consistent")) {
 #if DEBUG
             errs() << "[Loop Inst] Calls Fresh\n";
 #endif
             std::set<Instruction*> v;
-            toDelete->push_back(ci);
+            if (find(toDelete->begin(), toDelete->end(), ci) == toDelete->end()) {
+              errs() << "getAnnot: " << ci << "\n";
+              toDelete->push_back(ci);
+            }
 
 #if DEBUG
             errs() << "[Loop Inst] Print inputMap entries:\n";
@@ -340,7 +347,7 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
 #endif
 }
 
-void InferAtomsPass::removeAnnotations(inst_vec* toDelete) {
+void InferAtomsPass::removeAnnotations(inst_vec& toDelete) {
   std::vector<Function*> toDeleteF;
 
   // Delete all annotation function calls
@@ -353,7 +360,7 @@ void InferAtomsPass::removeAnnotations(inst_vec* toDelete) {
         for (; I != B.end(); I++) {
           if (auto* ci = dyn_cast<CallInst>(I)) {
             // TODO: no need to confirm in toDelete?
-            if (std::find(toDelete->begin(), toDelete->end(), &*I) != toDelete->end()) {
+            if (find(toDelete.begin(), toDelete.end(), &*I) != toDelete.end()) {
 #if DEBUG
               errs() << "Remove call: " << *I << "\n";
 #endif
@@ -377,7 +384,7 @@ void InferAtomsPass::removeAnnotations(inst_vec* toDelete) {
   }
 
   // Delete all annotation function defs
-  for (auto F : toDeleteF) {
+  for (auto* F : toDeleteF) {
 #if DEBUG
     errs() << "Remove function " << F->getName() << "\n";
 #endif

@@ -20,9 +20,9 @@ struct InferFreshCons {
   enum InsertKind { Start,
                     End };
 
-  void inferConsistent(std::map<int, inst_vec> allSets);
-  void inferFresh(inst_vec_vec allSets);
-  void addRegion(inst_vec conSet, RegionKind regionKind);
+  void inferCons(std::map<int, inst_vec> consSets, inst_vec_vec* freshSets, inst_vec* toDeleteAnnots);
+  void inferFresh(inst_vec_vec freshSets, inst_vec* toDeleteAnnots);
+  void addRegion(inst_vec conSet, inst_vec_vec* other, inst_vec* toDeleteAnnots);
   Function* findCandidate(std::map<Instruction*, BasicBlock*> blocks, Function* root);
   Instruction* insertRegionInst(InsertKind insertKind, Instruction* insertBefore);
   bool sameFunction(std::map<Instruction*, BasicBlock*> blockMap);
