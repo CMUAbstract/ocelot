@@ -78,7 +78,7 @@ entry:
   %1 = load i32, ptr %x, align 4
   call void @Consistent(i32 noundef %1, i32 noundef 1)
   %2 = load i32, ptr %y, align 4
-  call void @FreshConsistent(i32 noundef %2, i32 noundef 1)
+  call void @Consistent(i32 noundef %2, i32 noundef 1)
   ret void
 }
 

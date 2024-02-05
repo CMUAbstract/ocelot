@@ -359,7 +359,7 @@ void InferAtomsPass::removeAnnotations(inst_vec& toDelete) {
         auto I = B.begin();
         for (; I != B.end(); I++) {
           if (auto* ci = dyn_cast<CallInst>(I)) {
-            // TODO: no need to confirm in toDelete?
+            // TODO: No need to confirm in toDelete?
             if (find(toDelete.begin(), toDelete.end(), &*I) != toDelete.end()) {
 #if DEBUG
               errs() << "Remove call: " << *I << "\n";

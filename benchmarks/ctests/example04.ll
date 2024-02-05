@@ -42,15 +42,13 @@ entry:
   %x = alloca i32, align 4
   %y = alloca i32, align 4
   call void @atomic_start()
+  %call = call i32 @input()
   %call1 = call i32 @input()
+  call void @atomic_end()
+  store i32 %call, ptr %x, align 4
   store i32 %call1, ptr %y, align 4
   %0 = load i32, ptr %y, align 4
   call void @log(i32 noundef %0)
-  call void @atomic_end()
-  call void @atomic_start()
-  %1 = call i32 @input()
-  call void @atomic_end()
-  store i32 %1, ptr %x, align 4
   ret void
 }
 

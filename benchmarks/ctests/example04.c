@@ -19,7 +19,8 @@ void app() {
   int y = input();
   log(y);
   Consistent(x, 1);
-  FreshConsistent(y, 1);
+  Consistent(y, 1);
+  // FreshConsistent(y, 1);
 }
 
 int main() {
