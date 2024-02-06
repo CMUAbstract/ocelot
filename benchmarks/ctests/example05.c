@@ -1,8 +1,6 @@
 #include <stdio.h>
 
 void Fresh(int x) {}
-void Consistent(int x, int id) {}
-void FreshConsistent(int x, int id) {}
 
 void atomic_start() {}
 void atomic_end() {}
@@ -16,11 +14,10 @@ void log(int x) {
 
 void app() {
   int x = input();
-  int y = input();
-  log(x);
-  log(y);
-  Consistent(x, 1);
-  FreshConsistent(y, 1);
+  for (int i = 0; i < 10; i++) {
+    log(x);
+  }
+  Fresh(x);
 }
 
 int main() {

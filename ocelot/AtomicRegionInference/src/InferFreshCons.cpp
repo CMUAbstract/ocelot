@@ -61,27 +61,30 @@ BasicBlock* InferFreshCons::getLoopEnd(BasicBlock* bb) {
 // Top level region inference function -- could flatten later
 void InferFreshCons::inferCons(std::map<int, inst_vec> consSets, inst_vec_vec* freshSets, inst_vec* toDeleteAnnots) {
 #if DEBUG
-  errs() << "=== inferConsistent ===\n";
+  errs() << "=== inferCons ===\n";
 #endif
   for (auto& [id, set] : consSets) {
 #if DEBUG
-    errs() << "[InferConsistent] Adding region for set " << id << "\n";
+    errs() << "[inferCons] Adding region for set " << id << "\n";
 #endif
     addRegion(set, freshSets, toDeleteAnnots);
   }
 #if DEBUG
-  errs() << "*** inferConsistent ***\n";
+  errs() << "*** inferCons ***\n";
 #endif
 }
 
 // The only difference is outer map vs outer vec
-void InferFreshCons::inferFresh(inst_vec_vec freshSets, inst_vec* toDeleteAnnots) {
+void InferFreshCons::inferFresh(inst_vec_vec freshSets, std::map<int, inst_vec>* consSets, inst_vec* toDeleteAnnots) {
 #if DEBUG
   errs() << "=== inferFresh ===\n";
 #endif
 
+  std::vector<inst_vec> consVec;
+  for (auto& [_, consSet] : *consSets) consVec.push_back(consSet);
+
   for (auto freshSet : freshSets) {
-    addRegion(freshSet, nullptr, toDeleteAnnots);
+    addRegion(freshSet, &consVec, toDeleteAnnots);
   }
 #if DEBUG
   errs() << "*** inferFresh ***\n";
@@ -202,8 +205,23 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
 #if DEBUG
           errs() << I << "\n";
 #endif
-          if (!isa<AllocaInst>(I)) {
-            auto shouldDelay = find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end();
+          bool isRegionBoundary = false;
+          if (auto* ci = dyn_cast<CallInst>(&I)) {
+            auto funName = ci->getCalledFunction()->getName();
+            isRegionBoundary =
+                funName.equals("atomic_start") || funName.equals("atomic_end");
+          }
+
+          // Only attempt to schedule instruction if it's not alloca or a region boundary
+          if (!isa<AllocaInst>(I) && !isRegionBoundary) {
+            bool inExistingSet = false;
+            for (auto insts : *other) {
+              if (find(insts.begin(), insts.end(), &I) != insts.end()) {
+                inExistingSet = true;
+              }
+            }
+
+            auto shouldDelay = find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end() && !inExistingSet;
 #if DEBUG
             errs() << "  Should" << (shouldDelay ? " " : " NOT ") << "be delayed\n";
 #endif

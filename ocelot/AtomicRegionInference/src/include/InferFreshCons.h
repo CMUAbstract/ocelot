@@ -21,7 +21,7 @@ struct InferFreshCons {
                     End };
 
   void inferCons(std::map<int, inst_vec> consSets, inst_vec_vec* freshSets, inst_vec* toDeleteAnnots);
-  void inferFresh(inst_vec_vec freshSets, inst_vec* toDeleteAnnots);
+  void inferFresh(inst_vec_vec freshSets, std::map<int, inst_vec>* consSets, inst_vec* toDeleteAnnots);
   void addRegion(inst_vec conSet, inst_vec_vec* other, inst_vec* toDeleteAnnots);
   Function* findCandidate(std::map<Instruction*, BasicBlock*> blocks, Function* root);
   Instruction* insertRegionInst(InsertKind insertKind, Instruction* insertBefore);

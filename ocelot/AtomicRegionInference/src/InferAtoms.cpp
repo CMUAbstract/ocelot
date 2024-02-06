@@ -73,7 +73,7 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
   InferFreshCons* ci = new InferFreshCons(&FAM, &M, atomStart, atomEnd);
 
   ci->inferCons(allConsSets, &allFresh, &toDeleteAnnots);
-  ci->inferFresh(allFresh, &toDeleteAnnots);
+  ci->inferFresh(allFresh, &allConsSets, &toDeleteAnnots);
 
   // Delete annotations
   removeAnnotations(toDeleteAnnots);
