@@ -29,7 +29,7 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
   // to only go through all the declarations once.
   std::map<int, inst_vec> consVars;
   inst_vec_vec freshVars;
-  inst_insts_map inputMap = buildInputs(this->M);
+  auto [inputMap, inputInsts] = buildInputs(this->M);
   errs() << "inputMap:\n";
   printInstInsts(inputMap);
   inst_vec toDeleteAnnots;
@@ -49,10 +49,10 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
     for (auto* inst : insts) errs() << *inst << "\n";
 #endif
 
-#if DEBUG
-  errs() << "Print inputMap CallInst entries:\n";
-  printInstInsts(inputMap, true);
-#endif
+  // #if DEBUG
+  //   errs() << "Print inputMap CallInst entries:\n";
+  //   printInstInsts(inputMap, true);
+  // #endif
 
   auto allConsSets = collectCons(consVars, inputMap);
   auto allFresh = collectFresh(freshVars, inputMap);
@@ -72,8 +72,8 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
   // Consistent first
   InferFreshCons* ci = new InferFreshCons(&FAM, &M, atomStart, atomEnd);
 
-  ci->inferCons(allConsSets, &allFresh, &toDeleteAnnots);
-  ci->inferFresh(allFresh, &allConsSets, &toDeleteAnnots);
+  ci->inferCons(allConsSets, &allFresh, &toDeleteAnnots, &inputInsts);
+  ci->inferFresh(allFresh, &allConsSets, &toDeleteAnnots, &inputInsts);
 
   // Delete annotations
   removeAnnotations(toDeleteAnnots);
@@ -81,7 +81,7 @@ PreservedAnalyses InferAtomsPass::run(Module& M, ModuleAnalysisManager& AM) {
   return PreservedAnalyses::none();
 }
 
-// This function finds annotated variables
+// Finds *all* variables affected by annotation
 void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_vec* freshVars,
                                     inst_insts_map inputMap, inst_vec* toDelete) {
 #if DEBUG
@@ -92,7 +92,7 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
       for (auto& I : B) {
         if (auto* ci = dyn_cast<CallInst>(&I)) {
 #if DEBUG
-          errs() << "[Loop Inst] Found call: " << *ci << "\n";
+          errs() << "[Loop I] Found call: " << *ci << "\n";
 #endif
           auto* fun = ci->getCalledFunction();
           // Various empty or null checks
@@ -100,7 +100,6 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
           auto funName = fun->getName();
           // Consistent & FreshConsistent
           if (isAnnot(funName) && !funName.equals("Fresh")) {
-            errs() << "getAnnot: " << ci << "\n";
             toDelete->push_back(ci);
             int setID;
             // Bit cast use of x, then value operand of store
@@ -251,44 +250,44 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
           // Fresh & FreshConsistent
           if (isAnnot(funName) && !funName.equals("Consistent")) {
 #if DEBUG
-            errs() << "[Loop Inst] Calls Fresh\n";
+            errs() << "[Loop I] Calls Fresh\n";
 #endif
             std::set<Instruction*> v;
             if (find(toDelete->begin(), toDelete->end(), ci) == toDelete->end()) {
-              errs() << "getAnnot: " << ci << "\n";
+              // errs() << "getAnnot: " << ci << "\n";
               toDelete->push_back(ci);
             }
 
-#if DEBUG
-            errs() << "[Loop Inst] Print inputMap entries:\n";
-            printInstInsts(inputMap);
-#endif
+            // #if DEBUG
+            //             errs() << "[Loop I] Print inputMap entries:\n";
+            //             printInstInsts(inputMap);
+            // #endif
 
             //* Can't actually remove, otherwise wrong result
             // #if DEBUG
-            //             errs() << "[Loop Inst] Remove Fresh call from inputMap\n";
+            //             errs() << "[Loop I] Remove Fresh call from inputMap\n";
             // #endif
             //             inputMap.erase(ci);
 
-            auto* arg = ci->getOperand(0);
+            auto* freshArg = ci->getOperand(0);
 #if DEBUG
-            errs() << "[Loop Inst] Fresh arg: " << *arg << "\n";
+            errs() << "[Loop I] freshArg: " << *freshArg << "\n";
 #endif
 
-            if (auto* inst = dyn_cast<Instruction>(arg)) {
+            if (auto* inst = dyn_cast<Instruction>(freshArg)) {
 #if DEBUG
-              errs() << "[Loop Inst] arg = Instruction, add to v\n";
+              errs() << "[Loop I] Add freshVar to v\n";
 #endif
               v.emplace(inst);
 
               //* Actually collect all uses (e.g., log(x))
               if (auto* li = dyn_cast<LoadInst>(inst)) {
 #if DEBUG
-                errs() << "[Loop Inst] Further arg = LoadInst\n";
+                errs() << "[Loop I] Further arg = LoadInst\n";
 #endif
                 auto* ptr = li->getPointerOperand();
 #if DEBUG
-                errs() << "[Loop Inst] Ptr operand: " << *ptr << "\n";
+                errs() << "[Loop I] Ptr operand: " << *ptr << "\n";
 #endif
                 for (auto* ptrUse : ptr->users()) {
 #if DEBUG
@@ -296,7 +295,7 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
 #endif
                   if (ptrUse != inst) {
                     if (auto* liUse = dyn_cast<LoadInst>(ptrUse)) {
-                      errs() << "[Loop ptr users] ptrUse diff from Fresh arg, add to v\n";
+                      errs() << "[Loop ptr users] ptrUse = LoadInst & diff from freshArg, add to v\n";
                       v.emplace(liUse);
                     }
                   }
@@ -306,9 +305,9 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
             // v.push_back(ci);
 
 #if DEBUG
-            errs() << "[Loop Inst] Go over arg users\n";
+            errs() << "[Loop I] Go over arg users\n";
 #endif
-            for (auto* use : arg->users()) {
+            for (auto* use : freshArg->users()) {
               if (auto* si = dyn_cast<StoreInst>(use)) {
 #if DEBUG
                 errs() << "[Loop Users] use = StoreInst, add to v: " << *si << "\n";
@@ -325,7 +324,7 @@ void InferAtomsPass::getAnnotations(std::map<int, inst_vec>* consVars, inst_vec_
 
             if (!v.empty()) {
 #if DEBUG
-              errs() << "[Loop Inst] Add v's insts to a set in freshVars:\n";
+              errs() << "[Loop I] Add v's insts to a set in freshVars:\n";
 #endif
               inst_vec tmp;
               for (auto* inst : v) {
@@ -548,13 +547,14 @@ inst_vec_vec InferAtomsPass::collectFresh(inst_vec_vec freshVars, inst_insts_map
   inst_vec_vec toReturn;
 
 #if DEBUG
-  errs() << "Go over fresh var sets\n";
+  errs() << "Go over fresh freshSets\n";
 #endif
   for (auto varSet : freshVars) {
 #if DEBUG
     errs() << "[Loop freshVars] Go over varSet:\n";
     printInsts(varSet);
 #endif
+
     inst_set unique, callChain;
     for (auto* var : varSet) {
 #if DEBUG

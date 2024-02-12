@@ -59,7 +59,7 @@ BasicBlock* InferFreshCons::getLoopEnd(BasicBlock* bb) {
 }
 
 // Top level region inference function -- could flatten later
-void InferFreshCons::inferCons(std::map<int, inst_vec> consSets, inst_vec_vec* freshSets, inst_vec* toDeleteAnnots) {
+void InferFreshCons::inferCons(std::map<int, inst_vec> consSets, inst_vec_vec* freshSets, inst_vec* toDeleteAnnots, std::set<CallInst*>* inputInsts) {
 #if DEBUG
   errs() << "=== inferCons ===\n";
 #endif
@@ -67,7 +67,7 @@ void InferFreshCons::inferCons(std::map<int, inst_vec> consSets, inst_vec_vec* f
 #if DEBUG
     errs() << "[inferCons] Adding region for set " << id << "\n";
 #endif
-    addRegion(set, freshSets, toDeleteAnnots);
+    addRegion(set, freshSets, toDeleteAnnots, nullptr);
   }
 #if DEBUG
   errs() << "*** inferCons ***\n";
@@ -75,7 +75,7 @@ void InferFreshCons::inferCons(std::map<int, inst_vec> consSets, inst_vec_vec* f
 }
 
 // The only difference is outer map vs outer vec
-void InferFreshCons::inferFresh(inst_vec_vec freshSets, std::map<int, inst_vec>* consSets, inst_vec* toDeleteAnnots) {
+void InferFreshCons::inferFresh(inst_vec_vec freshSets, std::map<int, inst_vec>* consSets, inst_vec* toDeleteAnnots, std::set<CallInst*>* inputInsts) {
 #if DEBUG
   errs() << "=== inferFresh ===\n";
 #endif
@@ -84,14 +84,14 @@ void InferFreshCons::inferFresh(inst_vec_vec freshSets, std::map<int, inst_vec>*
   for (auto& [_, consSet] : *consSets) consVec.push_back(consSet);
 
   for (auto freshSet : freshSets) {
-    addRegion(freshSet, &consVec, toDeleteAnnots);
+    addRegion(freshSet, &consVec, toDeleteAnnots, inputInsts);
   }
 #if DEBUG
   errs() << "*** inferFresh ***\n";
 #endif
 }
 
-void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_vec* toDeleteAnnots) {
+void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_vec* toDeleteAnnots, std::set<CallInst*>* inputInsts) {
 #if DEBUG
   errs() << "=== addRegion ===\n";
 #endif
@@ -117,23 +117,24 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
   inst_inst_vec regionsFound;
   while (!regionsNeeded.empty()) {
     // Need to raise all blocks in the map until they are the same
-    auto blocks = regionsNeeded.front();
+    auto taintedBlocks = regionsNeeded.front();
     regionsNeeded.pop();
+
     // Record which functions have been traveled through
     std::set<Function*> seenFuns;
 
 #if DEBUG
     errs() << "[Loop regionsNeeded] While blocks are in diff functions\n";
 #endif
-    while (!sameFunction(blocks)) {
+    while (!sameFunction(taintedBlocks)) {
       // To think on: does this change?
-      auto* goal = findCandidate(blocks, root);
+      auto* goal = findCandidate(taintedBlocks, root);
 #if DEBUG
       errs() << "[Loop !sameFunction] Go over each targetInst\n";
 #endif
       for (auto* targetInst : targetInsts) {
         // not all blocks need to be moved up
-        auto* curFun = blocks[targetInst]->getParent();
+        auto* curFun = taintedBlocks[targetInst]->getParent();
         seenFuns.insert(curFun);
         if (curFun != goal) {
           // if more than one call:
@@ -153,13 +154,13 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
             }
             // update the original map
             if (first) {
-              blocks[targetInst] = inst->getParent();
+              taintedBlocks[targetInst] = inst->getParent();
               first = false;
             } else {
               // copy the blockmap, update, add to queue
               auto* inst = dyn_cast<Instruction>(use);
               std::map<Instruction*, BasicBlock*> copy;
-              for (auto map : blocks) copy[map.first] = map.second;
+              for (auto map : taintedBlocks) copy[map.first] = map.second;
               copy[targetInst] = inst->getParent();
               regionsNeeded.push(copy);
             }
@@ -174,25 +175,71 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
     errs() << "[Loop regionsNeeded] Start dom tree analysis\n";
 #endif
 
-    auto* homeFun = blocks.begin()->second->getParent();
+    auto* homeFun = taintedBlocks.begin()->second->getParent();
     if (homeFun == nullptr) {
 #if DEBUG
-      errs() << "[regionsNeeded] No function found\n";
+      errs() << "[Loop regionsNeeded] No function found\n";
 #endif
       continue;
     }
 #if DEBUG
-    errs() << "[regionsNeeded] Found home fun: " << homeFun->getName() << "\n";
+    errs() << "[Loop regionsNeeded] Found home fun: " << homeFun->getName() << "\n";
 #endif
 
+    // Tainted blocks right before untained blocks
+    std::vector<BasicBlock*> lastTainted;
+    BasicBlock* prevTainted;
+
+    for (auto& B : *homeFun) {
+      bool isTainted = false;
+
+      for (auto& [_, taintedBlock] : taintedBlocks) {
+        if (&B == taintedBlock) {
+          isTainted = true;
+          break;
+        }
+      }
+
+      if (!isTainted) {
+        errs() << "Not tainted: " << B << "\n";
+        if (prevTainted != nullptr && find(lastTainted.begin(), lastTainted.end(), prevTainted) == lastTainted.end())
+          lastTainted.push_back(prevTainted);
+      } else {
+        prevTainted = &B;
+      }
+    }
+
+    for (auto* B : lastTainted) {
+      errs() << "lastTainted: " << *B << "\n";
+    }
+
+    // lastTainted[1]->setNext();
+
 #if OPT
-#if DEBUG
-    errs() << "[regionsNeeded] Go over all block insts\n";
-#endif
     std::set<BasicBlock*> seenBlocks;
-    for (auto& [_, B] : blocks) {
-      if (seenBlocks.find(B) == seenBlocks.end()) {
-        seenBlocks.emplace(B);
+    bool hasRewired = false;
+
+#if DEBUG
+    errs() << "[Loop regionsNeeded] Go over all blocks\n";
+#endif
+    for (auto& B : *homeFun) {
+      bool isTainted = false;
+      for (auto& [_, tB] : taintedBlocks) {
+        if (&B == tB) {
+          isTainted = true;
+          break;
+        }
+      }
+
+      if (!isTainted && seenBlocks.find(&B) == seenBlocks.end()) {
+        seenBlocks.emplace(&B);
+
+        errs() << "Terminator: " << *B.getTerminator() << "\n";
+      } else if (isTainted && seenBlocks.find(&B) == seenBlocks.end()) {
+#if DEBUG
+        errs() << "[Loop B] New tainted block\n";
+#endif
+        seenBlocks.emplace(&B);
 
         // A mapping from original instructions to their clones
         inst_inst_map clonedInsts;
@@ -201,7 +248,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
         // (The original) instructions to be deleted
         inst_vec toDelete;
 
-        for (auto& I : *B) {
+        for (auto& I : B) {
 #if DEBUG
           errs() << I << "\n";
 #endif
@@ -250,12 +297,28 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
               clone = shouldDelay ? I.clone() : &I;
 
               if (shouldDelay && I.getNumOperands() > 1) {
-                auto* op = dyn_cast<Instruction>(I.getOperand(0));
-                inst_inst_map::iterator it = clonedInsts.find(op);
-                assert(it != clonedInsts.end());
-                clone->setOperand(0, it->second);
+                if (auto* op = dyn_cast<Instruction>(I.getOperand(0))) {
+                  inst_inst_map::iterator it = clonedInsts.find(op);
+                  assert(it != clonedInsts.end());
+                  clone->setOperand(0, it->second);
+                }
               }
             } else if (isa<StoreInst>(&I)) {
+              // Check whether any IO function calls coming after depend on this store
+              // If so, do NOT delay
+              auto* storePtr = I.getOperand(1);
+              for (auto* user : storePtr->users()) {
+                if (auto* li = dyn_cast<LoadInst>(user)) {
+                  for (auto* liUser : li->users()) {
+                    if (auto* ci = dyn_cast<CallInst>(liUser)) {
+                      if (inputInsts->find(ci) != inputInsts->end()) {
+                        shouldDelay = false;
+                      }
+                    }
+                  }
+                }
+              }
+
               clone = I.clone();
 
               if (auto* op = dyn_cast<Instruction>(I.getOperand(0))) {
@@ -263,8 +326,19 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
                 assert(it != clonedInsts.end());
                 clone->setOperand(0, it->second);
               }
+            } else if (isa<LoadInst>(&I)) {
+              // Check whether any IO function calls coming after depend on this load
+              // If so, do NOT delay
+              for (auto* user : I.users()) {
+                if (auto* ci = dyn_cast<CallInst>(user)) {
+                  if (inputInsts->find(ci) != inputInsts->end()) {
+                    shouldDelay = false;
+                  }
+                }
+              }
+
+              clone = I.clone();
             } else {
-              // E.g., LoadInst
               clone = I.clone();
             }
 
@@ -277,7 +351,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
           }
         }
 
-        IRBuilder builder(B);
+        IRBuilder builder(&B);
         // Append each delayed instruction to the end of the block,
         // in the original order
         for (auto* I : toDelay) builder.Insert(I);
@@ -285,9 +359,9 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
 #if DEBUG
         errs() << "Delete originals:\n";
 #endif
-        auto I = B->begin();
+        auto I = B.begin();
         // Delete the originals
-        for (; I != B->end();) {
+        for (; I != B.end();) {
 #if DEBUG
           errs() << *I << "\n";
 #endif
@@ -328,7 +402,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
         }
 
 #if DEBUG
-        errs() << "After: " << *B << "\n";
+        errs() << "After: " << B << "\n";
 #endif
       }
     }
@@ -336,8 +410,8 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
 
     auto& domTree = FAM->getResult<DominatorTreeAnalysis>(*homeFun);
     // Find the closest point that dominates
-    auto* startDom = blocks.begin()->second;
-    for (auto& [_, B] : blocks)
+    auto* startDom = taintedBlocks.begin()->second;
+    for (auto& [_, B] : taintedBlocks)
       startDom = domTree.findNearestCommonDominator(B, startDom);
 #if DEBUG
     errs() << "[Loop regionsNeeded] startDom: " << *startDom << "\n";
@@ -352,8 +426,8 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
     // Flip directions for the region end
     auto& postDomTree = FAM->getResult<PostDominatorTreeAnalysis>(*homeFun);
     // Find the closest point that dominates
-    auto* endDom = blocks.begin()->second;
-    for (auto& [_, block] : blocks) {
+    auto* endDom = taintedBlocks.begin()->second;
+    for (auto& [_, taintedBlock] : taintedBlocks) {
 #if DEBUGINFER
       if (endDom != nullptr) {
         errs() << "Finding post dom of: " << getSimpleNodeLabel(map.second) << " and " << getSimpleNodeLabel(endDom) << "\n";
@@ -361,7 +435,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
         errs() << "endDom is null\n";
       }
 #endif
-      endDom = postDomTree.findNearestCommonDominator(block, endDom);
+      endDom = postDomTree.findNearestCommonDominator(taintedBlock, endDom);
     }
 
 #if DEBUG
@@ -399,7 +473,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
     }
 
     // TODO: fallback if endDom is null? Need hyper-blocks, I think
-    // possibly can do a truncation check, to lessen the size a little, but could that interfere with compiler optimizations?
+    // pOssibly can do a truncation check, to lessen the size a little, but could that interfere with compiler optimizations?
     auto* regionStart = truncate(startDom, true, targetInsts, seenFuns);
     auto* regionEnd = truncate(endDom, false, targetInsts, seenFuns);
     if (regionStart == nullptr) {
@@ -668,14 +742,14 @@ int InferFreshCons::getSubLength(BasicBlock* B, Instruction* end, std::vector<Ba
   int count = 0, max_ret = 0;
   visited.push_back(B);
 #if DEBUG
-  errs() << "Go over bb insts\n";
+  errs() << "Go over B insts\n";
 #endif
   for (auto& I : *B) {
     count++;
 
     if (&I == end) {
 #if DEBUG
-      errs() << "[Loop I] Cur inst = end, stop\n";
+      errs() << "[Loop I] I = end, stop: " << *end << "\n";
 #endif
       return count;
     }
@@ -684,7 +758,7 @@ int InferFreshCons::getSubLength(BasicBlock* B, Instruction* end, std::vector<Ba
       auto* cf = ci->getCalledFunction();
       if (!cf->empty() && cf != NULL) {
 #if DEBUG
-        errs() << "[Loop I] Cur inst = CallInst, calling: " << cf->getName() << "\n";
+        errs() << "[Loop I] I = CallInst, calling: " << cf->getName() << "\n";
 #endif
         count += cf->getInstructionCount();
       }
@@ -692,11 +766,11 @@ int InferFreshCons::getSubLength(BasicBlock* B, Instruction* end, std::vector<Ba
 
     if (I.isTerminator()) {
 #if DEBUG
-      errs() << "[Loop I] Cur inst = terminator\n";
+      errs() << "[Loop I] I = terminator: " << I << "\n";
 #endif
       for (int i = 0; i < I.getNumSuccessors(); i++) {
         auto* next = I.getSuccessor(i);
-        // already counted -- do something more fancy for loops?
+        // Already counted -- do something more fancy for loops?
         if (find(visited.begin(), visited.end(), next) != visited.end()) continue;
         int intermed = getSubLength(next, end, visited);
         if (intermed > max_ret) {

@@ -1,16 +1,16 @@
 #include "include/TaintTracker.h"
 
 // Main dataflow function to construct map of store (TODO: not just stores) insts to vars (inputs?) they depend on
-inst_insts_map buildInputs(Module* M) {
+std::pair<inst_insts_map, std::set<CallInst*>> buildInputs(Module* M) {
 #if DEBUG
   errs() << "=== buildInputs ===\n";
 #endif
 
-  inst_vec inputInsts = findInputInsts(M);
+  std::set<CallInst*> inputInsts = findInputInsts(M);
   inst_insts_map taintedInsts;
   inst_vec promotedInputs;
 
-  for (auto inputInst : inputInsts) {
+  for (auto* inputInst : inputInsts) {
 #if DEBUG
     errs() << "[Loop inputInst] inputInst: " << *inputInst << "\n";
 #endif
@@ -274,7 +274,7 @@ inst_insts_map buildInputs(Module* M) {
 #if DEBUG
   errs() << "*** buildInputs ***\n";
 #endif
-  return taintedInsts;
+  return make_pair(taintedInsts, inputInsts);
 }
 
 val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* taintedInsts, Instruction* caller) {
@@ -610,29 +610,29 @@ val_vec traverseLocal(Value* tainted, Instruction* srcInput, inst_insts_map* tai
   return interProcFlows;
 }
 
-inst_vec findInputInsts(Module* M) {
+std::set<CallInst*> findInputInsts(Module* M) {
 #if DEBUG
-  errs() << "findInputInsts\n";
+  errs() << "=== findInputInsts ===\n";
 #endif
-  inst_vec inputInsts;
+  std::set<CallInst*> inputInsts;
 
   // Find IO_NAME annotations
   for (auto& gv : M->globals()) {
     if (gv.getName().starts_with("IO_NAME")) {
-      if (auto* fp = dyn_cast<Function>(gv.getInitializer())) {
+      if (auto* ioFun = dyn_cast<Function>(gv.getInitializer())) {
 #if DEBUG
-        errs() << "Found IO fun: " << fp->getName() << "\n";
+        errs() << "Found IO fun: " << ioFun->getName() << "\n";
 #endif
         // Now, search for calls to those functions
         for (auto& F : *M) {
           for (auto& B : F) {
             for (auto& I : B) {
               if (auto* ci = dyn_cast<CallInst>(&I)) {
-                if (fp == ci->getCalledFunction()) {
+                if (ioFun == ci->getCalledFunction()) {
 #if DEBUG
                   errs() << "Found IO call: " << I << "\n";
 #endif
-                  inputInsts.push_back(&I);
+                  inputInsts.insert(ci);
                 }
               }
             }
@@ -645,6 +645,7 @@ inst_vec findInputInsts(Module* M) {
     }
   }
 
+  errs() << "*** findInputInsts ***\n";
   return inputInsts;
 }
 

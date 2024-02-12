@@ -5,9 +5,9 @@
 
 using namespace llvm;
 
-inst_insts_map buildInputs(Module* m);
+std::pair<inst_insts_map, std::set<CallInst*>> buildInputs(Module* m);
 val_vec traverseLocal(Value* tainted, Instruction* srcOp, inst_insts_map* buildMap, Instruction* caller);
-inst_vec findInputInsts(Module* M);
+std::set<CallInst*> findInputInsts(Module* M);
 Instruction* ptrAfterCall(Value* ptr, CallInst* ci);
 bool storePrecedesUse(Instruction* use, StoreInst* toMatch);
 inst_vec couldMatchGEPI(GetElementPtrInst* tGEPI);

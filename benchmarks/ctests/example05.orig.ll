@@ -49,6 +49,7 @@ define void @app() #0 {
 entry:
   %x = alloca i32, align 4
   %i = alloca i32, align 4
+  %i1 = alloca i32, align 4
   %call = call i32 @input()
   store i32 %call, ptr %x, align 4
   store i32 0, ptr %i, align 4
@@ -71,8 +72,27 @@ for.inc:                                          ; preds = %for.body
   br label %for.cond, !llvm.loop !5
 
 for.end:                                          ; preds = %for.cond
-  %3 = load i32, ptr %x, align 4
-  call void @Fresh(i32 noundef %3)
+  store i32 0, ptr %i1, align 4
+  br label %for.cond2
+
+for.cond2:                                        ; preds = %for.inc5, %for.end
+  %3 = load i32, ptr %i1, align 4
+  %cmp3 = icmp slt i32 %3, 10
+  br i1 %cmp3, label %for.body4, label %for.end7
+
+for.body4:                                        ; preds = %for.cond2
+  call void @log(i32 noundef 1)
+  br label %for.inc5
+
+for.inc5:                                         ; preds = %for.body4
+  %4 = load i32, ptr %i1, align 4
+  %inc6 = add nsw i32 %4, 1
+  store i32 %inc6, ptr %i1, align 4
+  br label %for.cond2, !llvm.loop !7
+
+for.end7:                                         ; preds = %for.cond2
+  %5 = load i32, ptr %x, align 4
+  call void @Fresh(i32 noundef %5)
   ret void
 }
 
@@ -96,3 +116,4 @@ attributes #1 = { "frame-pointer"="non-leaf" "no-trapping-math"="true" "stack-pr
 !4 = !{!"Homebrew clang version 17.0.2"}
 !5 = distinct !{!5, !6}
 !6 = !{!"llvm.loop.mustprogress"}
+!7 = distinct !{!7, !6}

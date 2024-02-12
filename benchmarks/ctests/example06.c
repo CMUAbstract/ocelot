@@ -1,11 +1,12 @@
 #include <stdio.h>
 
 void Fresh(int x) {}
+void Consistent(int x, int id) {}
 
 void atomic_start() {}
 void atomic_end() {}
 
-int input() { return 0; }
+int input(int i) { return i; }
 int (*IO_NAME)() = input;
 
 void log(int x) {
@@ -13,14 +14,10 @@ void log(int x) {
 }
 
 void app() {
-  int x = input();
-  for (int i = 0; i < 10; i++) {
-    log(x);
-  }
-  for (int i = 0; i < 10; i++) {
-    log(1);
-  }
+  int i = 1;
+  int x = input(i);
   Fresh(x);
+  log(x);
 }
 
 int main() {
