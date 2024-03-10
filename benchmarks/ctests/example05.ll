@@ -40,8 +40,8 @@ declare i32 @printf(ptr noundef, ...) #1
 define void @app() #0 {
 entry:
   %x = alloca i32, align 4
+  %0 = alloca i32, align 4
   %i = alloca i32, align 4
-  %i1 = alloca i32, align 4
   call void @atomic_start()
   %call = call i32 @input()
   store i32 %call, ptr %x, align 4
@@ -49,42 +49,42 @@ entry:
   br label %for.cond
 
 for.cond:                                         ; preds = %entry, %for.inc
-  %0 = load i32, ptr %i, align 4
-  %cmp = icmp slt i32 %0, 10
+  %1 = load i32, ptr %i, align 4
+  %cmp = icmp slt i32 %1, 10
   br i1 %cmp, label %for.body, label %for.end
 
 for.body:                                         ; preds = %for.cond
-  %1 = load i32, ptr %x, align 4
-  call void @log(i32 noundef %1)
+  %2 = load i32, ptr %x, align 4
+  call void @log(i32 noundef %2)
   br label %for.inc
 
 for.inc:                                          ; preds = %for.body
-  %2 = load i32, ptr %i, align 4
-  %inc = add nsw i32 %2, 1
+  %3 = load i32, ptr %i, align 4
+  %inc = add nsw i32 %3, 1
   store i32 %inc, ptr %i, align 4
   br label %for.cond, !llvm.loop !5
 
 for.end:                                          ; preds = %for.cond
-  store i32 0, ptr %i1, align 4
-  br label %for.cond2
-
-for.cond2:                                        ; preds = %for.inc5, %for.end
-  %3 = load i32, ptr %i1, align 4
-  %cmp3 = icmp slt i32 %3, 10
-  br i1 %cmp3, label %for.body4, label %for.end7
-
-for.body4:                                        ; preds = %for.cond2
-  call void @log(i32 noundef 1)
-  br label %for.inc5
-
-for.inc5:                                         ; preds = %for.body4
-  %4 = load i32, ptr %i1, align 4
-  %inc6 = add nsw i32 %4, 1
-  store i32 %inc6, ptr %i1, align 4
-  br label %for.cond2, !llvm.loop !7
-
-for.end7:                                         ; preds = %for.cond2
   call void @atomic_end()
+  store i32 0, ptr %0, align 4
+  br label %for.cond1
+
+for.cond1:                                        ; preds = %for.inc3, %for.end
+  %4 = load i32, ptr %0, align 4
+  %5 = icmp slt i32 %4, 10
+  br i1 %5, label %for.body2, label %for.end4
+
+for.body2:                                        ; preds = %for.cond1
+  call void @log(i32 noundef 1)
+  br label %for.inc3
+
+for.inc3:                                         ; preds = %for.body2
+  %6 = load i32, ptr %0, align 4
+  %7 = add nsw i32 %6, 1
+  store i32 %7, ptr %0, align 4
+  br label %for.cond1, !llvm.loop !5
+
+for.end4:                                         ; preds = %for.cond1
   ret void
 }
 
@@ -108,4 +108,3 @@ attributes #1 = { "frame-pointer"="non-leaf" "no-trapping-math"="true" "stack-pr
 !4 = !{!"Homebrew clang version 17.0.2"}
 !5 = distinct !{!5, !6}
 !6 = !{!"llvm.loop.mustprogress"}
-!7 = distinct !{!7, !6}

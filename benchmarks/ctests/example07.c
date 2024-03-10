@@ -15,12 +15,10 @@ void log(int x) {
 void app() {
   int x = input();
   for (int i = 0; i < 10; i++) {
-    log(1);
+    int y = 1;
     log(x);
+    log(y + 2);
   }
-  // for (int i = 0; i < 10; i++) {
-  //   log(1);
-  // }
   Fresh(x);
 }
 

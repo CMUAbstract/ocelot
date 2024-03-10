@@ -1,5 +1,6 @@
 #include "include/InferFreshCons.h"
 
+#include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Analysis/PostDominators.h"
 
 Instruction* InferFreshCons::insertRegionInst(InsertKind insertKind, Instruction* insertBefore) {
@@ -219,6 +220,16 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
     std::set<BasicBlock*> seenBlocks;
     bool hasRewired = false;
 
+    /*
+      - Check if stmt is in a loop
+      - Remove stmt from loop
+      - Clone that loop
+      - Remove tainted insts in cloned loop
+      - Connect the two loops
+    */
+    LoopInfo& LI = FAM->getResult<LoopAnalysis>(*homeFun);
+    std::map<Loop*, std::vector<Instruction*>> untaintedClones;
+
 #if DEBUG
     errs() << "[Loop regionsNeeded] Go over all blocks\n";
 #endif
@@ -232,12 +243,14 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
       }
 
       if (!isTainted && seenBlocks.find(&B) == seenBlocks.end()) {
+#if DEBUG
+        errs() << "[Loop B] Untainted block " << B.getName() << "\n";
+#endif
         seenBlocks.emplace(&B);
-
         errs() << "Terminator: " << *B.getTerminator() << "\n";
       } else if (isTainted && seenBlocks.find(&B) == seenBlocks.end()) {
 #if DEBUG
-        errs() << "[Loop B] New tainted block\n";
+        errs() << "[Loop B] Tainted block " << B.getName() << "\n";
 #endif
         seenBlocks.emplace(&B);
 
@@ -270,7 +283,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
 
             auto shouldDelay = find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end() && !inExistingSet;
 #if DEBUG
-            errs() << "  Should" << (shouldDelay ? " " : " NOT ") << "be delayed\n";
+            errs() << "__Should" << (shouldDelay ? " " : " NOT ") << "be delayed__\n";
 #endif
 
             Instruction* clone;
@@ -290,6 +303,20 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
                   clone->setOperand(i, it->second);
                 }
               }
+
+              if (shouldDelay) {
+                auto* loop = LI.getLoopFor(&B);
+                if (loop != nullptr) {
+#if DEBUG
+                  errs() << "In loop, keep track of it\n";
+#endif
+
+                  if (untaintedClones.count(loop) == 0)
+                    untaintedClones[loop] = {clone};
+                  else
+                    untaintedClones[loop].push_back(clone);
+                }
+              }
             } else if (isa<CallInst>(&I)) {
               // In case I is an IO function call, we don't clone it
               // and instead map it to itself for referencing later
@@ -301,6 +328,20 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
                   inst_inst_map::iterator it = clonedInsts.find(op);
                   assert(it != clonedInsts.end());
                   clone->setOperand(0, it->second);
+                }
+              }
+
+              if (shouldDelay) {
+                auto* loop = LI.getLoopFor(&B);
+                if (loop != nullptr) {
+#if DEBUG
+                  errs() << "In loop, keep track of it\n";
+#endif
+
+                  if (untaintedClones.count(loop) == 0)
+                    untaintedClones[loop] = {clone};
+                  else
+                    untaintedClones[loop].push_back(clone);
                 }
               }
             } else if (isa<StoreInst>(&I)) {
@@ -326,6 +367,20 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
                 assert(it != clonedInsts.end());
                 clone->setOperand(0, it->second);
               }
+
+              if (shouldDelay) {
+                auto* loop = LI.getLoopFor(&B);
+                if (loop != nullptr) {
+#if DEBUG
+                  errs() << "In loop, keep track of it\n";
+#endif
+
+                  if (untaintedClones.count(loop) == 0)
+                    untaintedClones[loop] = {clone};
+                  else
+                    untaintedClones[loop].push_back(clone);
+                }
+              }
             } else if (isa<LoadInst>(&I)) {
               // Check whether any IO function calls coming after depend on this load
               // If so, do NOT delay
@@ -338,6 +393,20 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
               }
 
               clone = I.clone();
+
+              if (shouldDelay) {
+                auto* loop = LI.getLoopFor(&B);
+                if (loop != nullptr) {
+#if DEBUG
+                  errs() << "In loop, keep track of it\n";
+#endif
+
+                  if (untaintedClones.count(loop) == 0)
+                    untaintedClones[loop] = {clone};
+                  else
+                    untaintedClones[loop].push_back(clone);
+                }
+              }
             } else {
               clone = I.clone();
             }
@@ -352,6 +421,9 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
         }
 
         IRBuilder builder(&B);
+#if DEBUG
+        errs() << "Add delayed instructions to end of block\n";
+#endif
         // Append each delayed instruction to the end of the block,
         // in the original order
         for (auto* I : toDelay) builder.Insert(I);
@@ -366,10 +438,10 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
           errs() << *I << "\n";
 #endif
           if (find(toDelete.begin(), toDelete.end(), &*I) != toDelete.end()) {
+            I = I->eraseFromParent();
 #if DEBUG
             errs() << "Deleted\n";
 #endif
-            I = I->eraseFromParent();
           } else
             I++;
         }
@@ -404,6 +476,179 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
 #if DEBUG
         errs() << "After: " << B << "\n";
 #endif
+      }
+    }
+
+    for (auto& [taintedLoop, untaintedClones] : untaintedClones) {
+#if DEBUG
+      errs() << "Clone taintedLoop\n";
+#endif
+      std::vector<BasicBlock*> clonedLoop;
+      BasicBlock* forEnd;
+      Instruction* clonedAlloca;
+      Value* initVal;
+      inst_inst_map clones;
+
+      auto loopBlocks = taintedLoop->getBlocks();
+      assert(loopBlocks.size() == 3);
+      for (int i = 0; i < loopBlocks.size(); i++) {
+        auto* block = loopBlocks[i];
+        auto* clonedBlock = BasicBlock::Create(block->getContext(), block->getName(), homeFun);
+        IRBuilder builder(clonedBlock);
+
+        Instruction* prev;
+        for (auto& I : *block) {
+          auto* clonedI = I.clone();
+
+          // Only extract if untainted
+          // Covers the cond and inc blocks; they are processed on the fly due to
+          // their special role in keeping the loop going
+          if (find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end()) {
+            // for.cond
+            if (i == 0) {
+              if (auto* li = dyn_cast<LoadInst>(clonedI)) {
+                auto* ptr = li->getPointerOperand();
+
+                if (auto* ai = dyn_cast<AllocaInst>(*ptr->uses().begin())) {
+                  IRBuilder builder(ai);
+                  clonedAlloca = builder.CreateAlloca(ai->getAllocatedType());
+                }
+
+                for (auto* ptrUser : ptr->users()) {
+                  if (auto* si = dyn_cast<StoreInst>(ptrUser)) {
+                    if (!isa<BinaryOperator>(si->getOperand(0))) {
+                      initVal = si->getOperand(0);
+                    }
+                  }
+                }
+
+                li->setOperand(0, clonedAlloca);
+                prev = li;
+              } else if (auto* ci = dyn_cast<CmpInst>(clonedI)) {
+                // TODO: Check if operand originates from the current loop
+                if (isa<LoadInst>(ci->getOperand(0))) {
+                  ci->setOperand(0, prev);
+                }
+                prev = ci;
+              } else if (auto* bi = dyn_cast<BranchInst>(clonedI)) {
+                assert(bi->isConditional());
+                bi->setCondition(prev);
+
+                if (auto* B = dyn_cast<BasicBlock>(bi->getOperand(1))) {
+                  forEnd = B;
+                }
+              }
+            }
+
+            // for.inc
+            else if (i == 2) {
+              if (auto* li = dyn_cast<LoadInst>(clonedI)) {
+                li->setOperand(0, clonedAlloca);
+                prev = li;
+              } else if (auto* bi = dyn_cast<BinaryOperator>(clonedI)) {
+                auto* lhs = bi->getOperand(0);
+                if (isa<LoadInst>(lhs)) bi->setOperand(0, prev);
+                auto* rhs = bi->getOperand(1);
+                if (isa<LoadInst>(rhs)) bi->setOperand(1, prev);
+                prev = bi;
+              } else if (auto* si = dyn_cast<StoreInst>(clonedI)) {
+                si->setOperand(0, prev);
+                si->setOperand(1, clonedAlloca);
+              }
+            }
+
+            clones.emplace(&I, clonedI);
+            builder.Insert(clonedI);
+          }
+        }
+
+        // for.body
+        // Performs a standard sound cloning procedure (on each operand);
+        // the instructions in the body are unrelated to the loop except the final
+        // branch instruction
+        for (auto& I : *clonedBlock) {
+          if (i == 1) {
+            if (auto* si = dyn_cast<StoreInst>(&I)) {
+              for (int i = 0; i < si->getNumOperands(); i++) {
+                auto* I = dyn_cast<Instruction>(si->getOperand(i));
+                if (I != nullptr) {
+                  inst_inst_map::iterator it = clones.find(I);
+                  if (it != clones.end()) si->setOperand(i, it->second);
+                }
+              }
+            } else if (auto* li = dyn_cast<LoadInst>(&I)) {
+              auto* ptr = dyn_cast<Instruction>(li->getPointerOperand());
+              inst_inst_map::iterator it = clones.find(ptr);
+              if (it != clones.end()) li->setOperand(0, it->second);
+            } else if (auto* bi = dyn_cast<BinaryOperator>(&I)) {
+              auto* lhs = dyn_cast<Instruction>(bi->getOperand(0));
+              inst_inst_map::iterator lhsIt = clones.find(lhs);
+              if (lhsIt != clones.end()) bi->setOperand(0, lhsIt->second);
+
+              auto* rhs = dyn_cast<Instruction>(bi->getOperand(1));
+              inst_inst_map::iterator rhsIt = clones.find(rhs);
+              if (rhsIt != clones.end()) bi->setOperand(0, rhsIt->second);
+            } else if (auto* ci = dyn_cast<CallInst>(&I)) {
+              for (int i = 0; i < ci->getNumOperands() - 1; i++) {
+                auto* arg = dyn_cast<Instruction>(ci->getOperand(i));
+                inst_inst_map::iterator argIt = clones.find(arg);
+                if (argIt != clones.end()) ci->setOperand(i, argIt->second);
+              }
+            }
+          }
+        }
+
+        clonedLoop.push_back(clonedBlock);
+      }
+
+      BasicBlock* forEndClone = BasicBlock::Create(forEnd->getContext(), forEnd->getName(), homeFun);
+      IRBuilder builder(forEndClone);
+      for (auto& I : *forEnd) {
+        if (!isa<CallInst>(I) && !isa<LoadInst>(I)) {
+          auto* clone = I.clone();
+          builder.Insert(clone);
+        }
+
+        if (isa<ReturnInst>(I)) {
+          IRBuilder builder(&I);
+          builder.CreateBr(clonedLoop[0]);
+          I.removeFromParent();
+          break;
+        }
+      }
+
+      for (auto& I : *forEnd) {
+        if (auto* bi = dyn_cast<BranchInst>(&I)) {
+          IRBuilder builder(bi);
+          builder.CreateStore(initVal, clonedAlloca);
+        }
+      }
+
+      // Connect the blocks of the new loop
+      for (int i = 0; i < clonedLoop.size(); i++) {
+        auto* block = clonedLoop[i];
+        for (auto& I : *block) {
+          if (auto* bi = dyn_cast<BranchInst>(&I)) {
+            // for.cond
+            if (i == 0) {
+              bi->setSuccessor(0, clonedLoop[1]);
+              bi->setSuccessor(1, forEndClone);
+            }
+            // for.body
+            else if (i == 1) {
+              bi->setSuccessor(0, clonedLoop[2]);
+            }
+            // for.inc
+            else if (i == 2) {
+              bi->setSuccessor(0, clonedLoop[0]);
+            }
+          }
+        }
+        errs() << *block << "\n";
+      }
+
+      for (auto* untaintedClone : untaintedClones) {
+        untaintedClone->removeFromParent();
       }
     }
 #endif
