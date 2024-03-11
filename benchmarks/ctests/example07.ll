@@ -49,7 +49,7 @@ entry:
   store i32 0, ptr %i, align 4
   br label %for.cond
 
-for.cond:                                         ; preds = %entry, %for.inc
+for.cond:                                         ; preds = %entry, %for.inc, <null operand!>
   %1 = load i32, ptr %i, align 4
   %cmp = icmp slt i32 %1, 10
   br i1 %cmp, label %for.body, label %for.end
@@ -59,7 +59,7 @@ for.body:                                         ; preds = %for.cond
   call void @log(i32 noundef %2)
   br label %for.inc
 
-for.inc:                                          ; preds = %for.body
+for.inc:                                          ; preds = %for.body, <null operand!>
   %3 = load i32, ptr %i, align 4
   %inc = add nsw i32 %3, 1
   store i32 %inc, ptr %i, align 4

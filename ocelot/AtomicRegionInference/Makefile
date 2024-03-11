@@ -1,4 +1,4 @@
-.PHONY: clean_tests clean eg1 eg2 eg3 eg4 eg5 eg6 eg7 run_eg1 run_eg2 run_eg3 run_eg4 run_eg5 run_eg6 run_eg7
+.PHONY: clean_tests clean eg1 eg2 eg3 eg4 eg5 eg6 eg7 eg8 run_eg1 run_eg2 run_eg3 run_eg4 run_eg5 run_eg6 run_eg7 run_eg8
 
 all:
 	make eg1
@@ -8,6 +8,7 @@ all:
 	make eg5
 	make eg6
 	make eg7
+	make eg8
 
 eg1:
 	TEST=example01 make test
@@ -23,6 +24,8 @@ eg6:
 	TEST=example06 make test
 eg7:
 	TEST=example07 make test
+eg8:
+	TEST=example08 make test
 
 run_eg1:
 	TEST=example01 make run
@@ -38,6 +41,8 @@ run_eg6:
 	TEST=example06 make run
 run_eg7:
 	TEST=example07 make run
+run_eg8:
+	TEST=example08 make run
 
 test:
 	$(MAKE) -C build

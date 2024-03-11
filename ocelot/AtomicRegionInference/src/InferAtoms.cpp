@@ -547,7 +547,7 @@ inst_vec_vec InferAtomsPass::collectFresh(inst_vec_vec freshVars, inst_insts_map
   inst_vec_vec toReturn;
 
 #if DEBUG
-  errs() << "Go over fresh freshSets\n";
+  errs() << "Go over freshSets\n";
 #endif
   for (auto varSet : freshVars) {
 #if DEBUG
@@ -572,11 +572,41 @@ inst_vec_vec InferAtomsPass::collectFresh(inst_vec_vec freshVars, inst_insts_map
 #endif
         unique.insert(use);
 
+#if DEBUG
+        errs() << "[Loop uses] Go over each src input of use\n";
+#endif
         for (auto* input : inputMap[use]) {
 #if DEBUG
-          errs() << "[Loop inputMap[use]] Add src input of use to unique: " << *input << "\n";
+          errs() << "Src input: " << *input << "\n";
+          errs() << "Add insts tainted by it to unique\n";
 #endif
-          unique.insert(input);
+
+          if (unique.count(input) == 0) {
+            unique.insert(input);
+
+            auto* ci = dyn_cast<CallInst>(input);
+            std::queue<Instruction*> toExplore;
+            toExplore.push(ci);
+
+            while (!toExplore.empty()) {
+              auto* I = toExplore.front();
+              toExplore.pop();
+
+              // TODO: If there's no tainted inst in the chain,
+              // then don't need to include in unique
+              errs() << "[Loop inputInst] Found inst tainted by src input: " << *I << "\n";
+              if (isa<CallInst>(I) || isa<LoadInst>(I) || isa<StoreInst>(I)) {
+                unique.insert(I);
+                for (auto& operand : I->operands())
+                  if (auto* operandI = dyn_cast<Instruction>(operand))
+                    toExplore.push(operandI);
+              } else if (auto* ai = dyn_cast<AllocaInst>(I)) {
+                for (auto* user : ai->users())
+                  if (auto* userI = dyn_cast<Instruction>(user))
+                    if (unique.count(userI) == 0) toExplore.push(userI);
+              }
+            }
+          }
         }
       }
 

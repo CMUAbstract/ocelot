@@ -15,5 +15,6 @@ bool isAnnot(const StringRef annotName);
 void printInstInsts(const inst_insts_map& iim, bool onlyCalls = false);
 void printInsts(const inst_vec& iv);
 void printIntInsts(const std::map<int, inst_vec>& iim);
+void patchClonedBlock(BasicBlock* block, inst_inst_map clonedInsts);
 
 #endif

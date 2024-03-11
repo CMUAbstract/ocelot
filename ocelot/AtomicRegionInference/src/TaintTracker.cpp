@@ -639,7 +639,6 @@ std::set<CallInst*> findInputInsts(Module* M) {
           }
         }
       } else {
-        // TODO: Say something else
         errs() << "[ERROR] Could not unwrap function pointer from annotation\n";
       }
     }

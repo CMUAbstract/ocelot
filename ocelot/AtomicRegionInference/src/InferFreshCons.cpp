@@ -104,8 +104,10 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
 #if DEBUG
   errs() << "Build map from inst to bb\n";
 #endif
-  for (auto* targetInst : targetInsts)
+  for (auto* targetInst : targetInsts) {
+    // errs() << "Check: " << *targetInst << "\n";
     targetBlocks[targetInst] = targetInst->getParent();
+  }
 
 #if DEBUG
   errs() << "Add map to regionsNeeded\n";
@@ -187,48 +189,11 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
     errs() << "[Loop regionsNeeded] Found home fun: " << homeFun->getName() << "\n";
 #endif
 
-    // Tainted blocks right before untained blocks
-    std::vector<BasicBlock*> lastTainted;
-    BasicBlock* prevTainted;
-
-    for (auto& B : *homeFun) {
-      bool isTainted = false;
-
-      for (auto& [_, taintedBlock] : taintedBlocks) {
-        if (&B == taintedBlock) {
-          isTainted = true;
-          break;
-        }
-      }
-
-      if (!isTainted) {
-        errs() << "Not tainted: " << B << "\n";
-        if (prevTainted != nullptr && find(lastTainted.begin(), lastTainted.end(), prevTainted) == lastTainted.end())
-          lastTainted.push_back(prevTainted);
-      } else {
-        prevTainted = &B;
-      }
-    }
-
-    for (auto* B : lastTainted) {
-      errs() << "lastTainted: " << *B << "\n";
-    }
-
-    // lastTainted[1]->setNext();
-
 #if OPT
     std::set<BasicBlock*> seenBlocks;
-    bool hasRewired = false;
 
-    /*
-      - Check if stmt is in a loop
-      - Remove stmt from loop
-      - Clone that loop
-      - Remove tainted insts in cloned loop
-      - Connect the two loops
-    */
     LoopInfo& LI = FAM->getResult<LoopAnalysis>(*homeFun);
-    std::map<Loop*, std::vector<Instruction*>> untaintedClones;
+    std::map<Loop*, std::vector<Instruction*>> untaintedLoopClones;
 
 #if DEBUG
     errs() << "[Loop regionsNeeded] Go over all blocks\n";
@@ -242,209 +207,64 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
         }
       }
 
-      if (!isTainted && seenBlocks.find(&B) == seenBlocks.end()) {
+      if (isTainted && seenBlocks.find(&B) == seenBlocks.end()) {
 #if DEBUG
-        errs() << "[Loop B] Untainted block " << B.getName() << "\n";
-#endif
-        seenBlocks.emplace(&B);
-        errs() << "Terminator: " << *B.getTerminator() << "\n";
-      } else if (isTainted && seenBlocks.find(&B) == seenBlocks.end()) {
-#if DEBUG
-        errs() << "[Loop B] Tainted block " << B.getName() << "\n";
+        errs() << "Tainted block " << B.getName() << ":\n";
 #endif
         seenBlocks.emplace(&B);
 
-        // A mapping from original instructions to their clones
-        inst_inst_map clonedInsts;
-        // Instructions to be delayed till the end of the block
-        inst_vec toDelay;
-        // (The original) instructions to be deleted
-        inst_vec toDelete;
+        inst_vec toDelete, toDelay;
+        inst_inst_map instClones;
 
         for (auto& I : B) {
 #if DEBUG
           errs() << I << "\n";
 #endif
-          bool isRegionBoundary = false;
+
+          bool inExistingSet = false;
+          for (auto insts : *other) {
+            if (find(insts.begin(), insts.end(), &I) != insts.end()) {
+              inExistingSet = true;
+              break;
+            }
+          }
+
+          bool isAtomicBoundary = false;
           if (auto* ci = dyn_cast<CallInst>(&I)) {
-            auto funName = ci->getCalledFunction()->getName();
-            isRegionBoundary =
-                funName.equals("atomic_start") || funName.equals("atomic_end");
+            auto* calledFun = ci->getCalledFunction();
+            if (calledFun == this->atomStart || calledFun == this->atomEnd)
+              isAtomicBoundary = true;
           }
 
-          // Only attempt to schedule instruction if it's not alloca or a region boundary
-          if (!isa<AllocaInst>(I) && !isRegionBoundary) {
-            bool inExistingSet = false;
-            for (auto insts : *other) {
-              if (find(insts.begin(), insts.end(), &I) != insts.end()) {
-                inExistingSet = true;
-              }
-            }
-
-            auto shouldDelay = find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end() && !inExistingSet;
+          // TODO: Exception with the entry block to a loop (prepone untainted insts instead)
+          if (find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end() && !isa<AllocaInst>(&I) && !inExistingSet && !isAtomicBoundary) {
 #if DEBUG
-            errs() << "__Should" << (shouldDelay ? " " : " NOT ") << "be delayed__\n";
+            errs() << "__Should be delayed__\n";
 #endif
+            auto* clone = I.clone();
+            instClones.emplace(&I, clone);
+            toDelete.push_back(&I);
+            toDelay.push_back(clone);
 
-            Instruction* clone;
-
-            // Clone each untainted instruction to be appended to
-            // the end of the basic block, in the original order
-            if (isa<BinaryOperator>(I)) {
-              clone = I.clone();
-
-              for (int i = 0; i < 2; i++) {
-                if (auto* op = dyn_cast<Instruction>(I.getOperand(i))) {
-                  // Since operands don't get cloned along the eway,
-                  // look up the clone of each operand...
-                  inst_inst_map::iterator it = clonedInsts.find(op);
-                  assert(it != clonedInsts.end());
-                  // ...and overwrite the original operand with it
-                  clone->setOperand(i, it->second);
-                }
-              }
-
-              if (shouldDelay) {
-                auto* loop = LI.getLoopFor(&B);
-                if (loop != nullptr) {
+            auto* loop = LI.getLoopFor(&B);
+            if (loop != nullptr) {
 #if DEBUG
-                  errs() << "In loop, keep track of it\n";
+              errs() << "__In loop, keep track of it__\n";
 #endif
-
-                  if (untaintedClones.count(loop) == 0)
-                    untaintedClones[loop] = {clone};
-                  else
-                    untaintedClones[loop].push_back(clone);
-                }
-              }
-            } else if (isa<CallInst>(&I)) {
-              // In case I is an IO function call, we don't clone it
-              // and instead map it to itself for referencing later
-
-              clone = shouldDelay ? I.clone() : &I;
-
-              if (shouldDelay && I.getNumOperands() > 1) {
-                if (auto* op = dyn_cast<Instruction>(I.getOperand(0))) {
-                  inst_inst_map::iterator it = clonedInsts.find(op);
-                  assert(it != clonedInsts.end());
-                  clone->setOperand(0, it->second);
-                }
-              }
-
-              if (shouldDelay) {
-                auto* loop = LI.getLoopFor(&B);
-                if (loop != nullptr) {
-#if DEBUG
-                  errs() << "In loop, keep track of it\n";
-#endif
-
-                  if (untaintedClones.count(loop) == 0)
-                    untaintedClones[loop] = {clone};
-                  else
-                    untaintedClones[loop].push_back(clone);
-                }
-              }
-            } else if (isa<StoreInst>(&I)) {
-              // Check whether any IO function calls coming after depend on this store
-              // If so, do NOT delay
-              auto* storePtr = I.getOperand(1);
-              for (auto* user : storePtr->users()) {
-                if (auto* li = dyn_cast<LoadInst>(user)) {
-                  for (auto* liUser : li->users()) {
-                    if (auto* ci = dyn_cast<CallInst>(liUser)) {
-                      if (inputInsts->find(ci) != inputInsts->end()) {
-                        shouldDelay = false;
-                      }
-                    }
-                  }
-                }
-              }
-
-              clone = I.clone();
-
-              if (auto* op = dyn_cast<Instruction>(I.getOperand(0))) {
-                inst_inst_map::iterator it = clonedInsts.find(op);
-                assert(it != clonedInsts.end());
-                clone->setOperand(0, it->second);
-              }
-
-              if (shouldDelay) {
-                auto* loop = LI.getLoopFor(&B);
-                if (loop != nullptr) {
-#if DEBUG
-                  errs() << "In loop, keep track of it\n";
-#endif
-
-                  if (untaintedClones.count(loop) == 0)
-                    untaintedClones[loop] = {clone};
-                  else
-                    untaintedClones[loop].push_back(clone);
-                }
-              }
-            } else if (isa<LoadInst>(&I)) {
-              // Check whether any IO function calls coming after depend on this load
-              // If so, do NOT delay
-              for (auto* user : I.users()) {
-                if (auto* ci = dyn_cast<CallInst>(user)) {
-                  if (inputInsts->find(ci) != inputInsts->end()) {
-                    shouldDelay = false;
-                  }
-                }
-              }
-
-              clone = I.clone();
-
-              if (shouldDelay) {
-                auto* loop = LI.getLoopFor(&B);
-                if (loop != nullptr) {
-#if DEBUG
-                  errs() << "In loop, keep track of it\n";
-#endif
-
-                  if (untaintedClones.count(loop) == 0)
-                    untaintedClones[loop] = {clone};
-                  else
-                    untaintedClones[loop].push_back(clone);
-                }
-              }
-            } else {
-              clone = I.clone();
-            }
-
-            clonedInsts.emplace(&I, clone);
-
-            if (shouldDelay) {
-              toDelete.push_back(&I);
-              toDelay.push_back(clone);
+              if (untaintedLoopClones.count(loop) == 0)
+                untaintedLoopClones[loop] = {clone};
+              else
+                untaintedLoopClones[loop].push_back(clone);
             }
           }
         }
 
-        IRBuilder builder(&B);
-#if DEBUG
-        errs() << "Add delayed instructions to end of block\n";
-#endif
-        // Append each delayed instruction to the end of the block,
-        // in the original order
-        for (auto* I : toDelay) builder.Insert(I);
+        for (auto* I : toDelete) I->removeFromParent();
 
-#if DEBUG
-        errs() << "Delete originals:\n";
-#endif
-        auto I = B.begin();
-        // Delete the originals
-        for (; I != B.end();) {
-#if DEBUG
-          errs() << *I << "\n";
-#endif
-          if (find(toDelete.begin(), toDelete.end(), &*I) != toDelete.end()) {
-            I = I->eraseFromParent();
-#if DEBUG
-            errs() << "Deleted\n";
-#endif
-          } else
-            I++;
-        }
+        IRBuilder BBuilder(&B);
+        for (auto* I : toDelay) BBuilder.Insert(I);
+
+        patchClonedBlock(&B, instClones);
 
         // Sync freshSets
         if (other != nullptr) {
@@ -479,18 +299,20 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
       }
     }
 
-    for (auto& [taintedLoop, untaintedClones] : untaintedClones) {
+    for (auto& [taintedLoop, untaintedClones] : untaintedLoopClones) {
 #if DEBUG
       errs() << "Clone taintedLoop\n";
 #endif
+      errs() << "ayo\n";
       std::vector<BasicBlock*> clonedLoop;
       BasicBlock* forEnd;
       Instruction* clonedAlloca;
       Value* initVal;
-      inst_inst_map clones;
+      inst_inst_map instClones;
 
       auto loopBlocks = taintedLoop->getBlocks();
       assert(loopBlocks.size() == 3);
+
       for (int i = 0; i < loopBlocks.size(); i++) {
         auto* block = loopBlocks[i];
         auto* clonedBlock = BasicBlock::Create(block->getContext(), block->getName(), homeFun);
@@ -557,7 +379,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
               }
             }
 
-            clones.emplace(&I, clonedI);
+            instClones.emplace(&I, clonedI);
             builder.Insert(clonedI);
           }
         }
@@ -566,37 +388,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
         // Performs a standard sound cloning procedure (on each operand);
         // the instructions in the body are unrelated to the loop except the final
         // branch instruction
-        for (auto& I : *clonedBlock) {
-          if (i == 1) {
-            if (auto* si = dyn_cast<StoreInst>(&I)) {
-              for (int i = 0; i < si->getNumOperands(); i++) {
-                auto* I = dyn_cast<Instruction>(si->getOperand(i));
-                if (I != nullptr) {
-                  inst_inst_map::iterator it = clones.find(I);
-                  if (it != clones.end()) si->setOperand(i, it->second);
-                }
-              }
-            } else if (auto* li = dyn_cast<LoadInst>(&I)) {
-              auto* ptr = dyn_cast<Instruction>(li->getPointerOperand());
-              inst_inst_map::iterator it = clones.find(ptr);
-              if (it != clones.end()) li->setOperand(0, it->second);
-            } else if (auto* bi = dyn_cast<BinaryOperator>(&I)) {
-              auto* lhs = dyn_cast<Instruction>(bi->getOperand(0));
-              inst_inst_map::iterator lhsIt = clones.find(lhs);
-              if (lhsIt != clones.end()) bi->setOperand(0, lhsIt->second);
-
-              auto* rhs = dyn_cast<Instruction>(bi->getOperand(1));
-              inst_inst_map::iterator rhsIt = clones.find(rhs);
-              if (rhsIt != clones.end()) bi->setOperand(0, rhsIt->second);
-            } else if (auto* ci = dyn_cast<CallInst>(&I)) {
-              for (int i = 0; i < ci->getNumOperands() - 1; i++) {
-                auto* arg = dyn_cast<Instruction>(ci->getOperand(i));
-                inst_inst_map::iterator argIt = clones.find(arg);
-                if (argIt != clones.end()) ci->setOperand(i, argIt->second);
-              }
-            }
-          }
-        }
+        if (i == 1) patchClonedBlock(clonedBlock, instClones);
 
         clonedLoop.push_back(clonedBlock);
       }
@@ -644,11 +436,10 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
             }
           }
         }
-        errs() << *block << "\n";
       }
 
       for (auto* untaintedClone : untaintedClones) {
-        untaintedClone->removeFromParent();
+        if (!isa<BranchInst>(untaintedClone)) untaintedClone->removeFromParent();
       }
     }
 #endif
@@ -658,11 +449,11 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
     auto* startDom = taintedBlocks.begin()->second;
     for (auto& [_, B] : taintedBlocks)
       startDom = domTree.findNearestCommonDominator(B, startDom);
-#if DEBUG
-    errs() << "[Loop regionsNeeded] startDom: " << *startDom << "\n";
-#endif
+      // #if DEBUG
+      //     errs() << "[Loop regionsNeeded] startDom: " << *startDom << "\n";
+      // #endif
 
-    // TODO: if an inst in the set is in the bb, we can truncate?
+      // TODO: if an inst in the set is in the bb, we can truncate?
 
 #if DEBUG
     errs() << "Start post dom tree analysis\n";
@@ -683,9 +474,9 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
       endDom = postDomTree.findNearestCommonDominator(taintedBlock, endDom);
     }
 
-#if DEBUG
-    errs() << "[Loop regionsNeeded] endDom: " << *endDom << "\n";
-#endif
+    // #if DEBUG
+    //     errs() << "[Loop regionsNeeded] endDom: " << *endDom << "\n";
+    // #endif
 
     if (startDom == nullptr) {
       errs() << "[Error] Null startDom\n";
@@ -697,11 +488,11 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
     startDom = domTree.findNearestCommonDominator(startDom, endDom);
     endDom = postDomTree.findNearestCommonDominator(startDom, endDom);
 
-#if DEBUG
-    errs() << "[Loop regionsNeeded] After matching scope\n";
-    errs() << "[Loop regionsNeeded] startDom: " << *startDom << "\n";
-    errs() << "[Loop regionsNeeded] endDom: " << *endDom << "\n";
-#endif
+    // #if DEBUG
+    //     errs() << "[Loop regionsNeeded] After matching scope\n";
+    //     errs() << "[Loop regionsNeeded] startDom: " << *startDom << "\n";
+    //     errs() << "[Loop regionsNeeded] endDom: " << *endDom << "\n";
+    // #endif
 
     // Extra check to disallow loop conditional block as the end
     if (loopCheck(endDom)) {
@@ -745,6 +536,8 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
   //}//end while regions needed
 
 #if DEBUG
+  errs() << "Final:\n"
+         << *root << "\n";
   errs() << "*** addRegion ***\n";
 #endif
 }
