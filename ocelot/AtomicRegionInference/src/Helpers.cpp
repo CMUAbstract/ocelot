@@ -50,12 +50,13 @@ void printIntInsts(const std::map<int, inst_vec>& iim) {
  */
 void patchClonedBlock(BasicBlock* block, inst_inst_map clonedInsts) {
   for (auto& I : *block) {
-    if (auto* si = dyn_cast<StoreInst>(&I)) {
-      for (int i = 0; i < si->getNumOperands(); i++) {
-        auto* operand = dyn_cast<Instruction>(si->getOperand(i));
+    if (isa<StoreInst>(I) || isa<CmpInst>(I)) {
+      auto* inst = dyn_cast<Instruction>(&I);
+      for (int i = 0; i < inst->getNumOperands(); i++) {
+        auto* operand = dyn_cast<Instruction>(inst->getOperand(i));
         if (operand != nullptr) {
           inst_inst_map::iterator it = clonedInsts.find(operand);
-          if (it != clonedInsts.end()) si->setOperand(i, it->second);
+          if (it != clonedInsts.end()) inst->setOperand(i, it->second);
         }
       }
     } else if (auto* li = dyn_cast<LoadInst>(&I)) {
@@ -72,9 +73,13 @@ void patchClonedBlock(BasicBlock* block, inst_inst_map clonedInsts) {
       // The last operand is the called function
       for (unsigned i = 0; i < ci->getNumOperands() - 1; i++) {
         auto* arg = dyn_cast<Instruction>(ci->getOperand(i));
-        inst_inst_map::iterator argIt = clonedInsts.find(arg);
-        if (argIt != clonedInsts.end()) ci->setOperand(i, argIt->second);
+        inst_inst_map::iterator it = clonedInsts.find(arg);
+        if (it != clonedInsts.end()) ci->setOperand(i, it->second);
       }
+    } else if (auto* ci = dyn_cast<BranchInst>(&I)) {
+      auto* cond = dyn_cast<Instruction>(ci->getOperand(0));
+      inst_inst_map::iterator it = clonedInsts.find(cond);
+      if (it != clonedInsts.end()) ci->setOperand(0, it->second);
     }
   }
 }

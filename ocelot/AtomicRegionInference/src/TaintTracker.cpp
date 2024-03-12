@@ -1023,7 +1023,7 @@ inst_vec traverseUses(Instruction* root) {
   }
 
 #if DEBUG
-  errs() << "=== traverseUses ===\n";
+  errs() << "*** traverseUses ***\n";
 #endif
   inst_vec uses_vec(uses.begin(), uses.end());
   return uses_vec;

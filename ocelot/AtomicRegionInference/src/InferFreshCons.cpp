@@ -50,13 +50,17 @@ bool InferFreshCons::loopCheck(BasicBlock* B) {
 // Find the first block after a for loop
 BasicBlock* InferFreshCons::getLoopEnd(BasicBlock* bb) {
   auto* ti = bb->getTerminator();
-  auto* end = ti->getSuccessor(0);
-  ti = end->getTerminator();
-  // errs() << "end is " << end->getName() << "\n";
-  // for switch inst, succ 0 is the fall through
-  end = ti->getSuccessor(1);
-  // errs() << "end is " << end->getName() << "\n";
-  return end;
+  if (ti->getNumSuccessors() == 0) {
+    return bb;
+  } else {
+    auto* end = ti->getSuccessor(0);
+    ti = end->getTerminator();
+    // errs() << "end is " << end->getName() << "\n";
+    // for switch inst, succ 0 is the fall through
+    end = ti->getSuccessor(1);
+    // errs() << "end is " << end->getName() << "\n";
+    return end;
+  }
 }
 
 // Top level region inference function -- could flatten later
@@ -194,6 +198,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
 
     LoopInfo& LI = FAM->getResult<LoopAnalysis>(*homeFun);
     std::map<Loop*, std::vector<Instruction*>> untaintedLoopClones;
+    bool loopCondTainted = false;
 
 #if DEBUG
     errs() << "[Loop regionsNeeded] Go over all blocks\n";
@@ -248,9 +253,8 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
 
             auto* loop = LI.getLoopFor(&B);
             if (loop != nullptr) {
-#if DEBUG
-              errs() << "__In loop, keep track of it__\n";
-#endif
+              if (&B != loop->getBlocks()[1]) loopCondTainted = true;
+
               if (untaintedLoopClones.count(loop) == 0)
                 untaintedLoopClones[loop] = {clone};
               else
@@ -299,147 +303,155 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
       }
     }
 
-    for (auto& [taintedLoop, untaintedClones] : untaintedLoopClones) {
+    if (!loopCondTainted) {
+      for (auto& [taintedLoop, untaintedClones] : untaintedLoopClones) {
 #if DEBUG
-      errs() << "Clone taintedLoop\n";
+        errs() << "Clone taintedLoop\n";
 #endif
-      errs() << "ayo\n";
-      std::vector<BasicBlock*> clonedLoop;
-      BasicBlock* forEnd;
-      Instruction* clonedAlloca;
-      Value* initVal;
-      inst_inst_map instClones;
+        std::vector<BasicBlock*> clonedLoop;
+        BasicBlock* forEnd;
+        Instruction* clonedAlloca;
+        Value* initVal;
+        inst_inst_map instClones;
 
-      auto loopBlocks = taintedLoop->getBlocks();
-      assert(loopBlocks.size() == 3);
+        auto loopBlocks = taintedLoop->getBlocks();
+        assert(loopBlocks.size() == 3);
 
-      for (int i = 0; i < loopBlocks.size(); i++) {
-        auto* block = loopBlocks[i];
-        auto* clonedBlock = BasicBlock::Create(block->getContext(), block->getName(), homeFun);
-        IRBuilder builder(clonedBlock);
+        for (int i = 0; i < loopBlocks.size(); i++) {
+          auto* block = loopBlocks[i];
+          auto* clonedBlock = BasicBlock::Create(block->getContext(), block->getName(), homeFun);
+          IRBuilder builder(clonedBlock);
 
-        Instruction* prev;
-        for (auto& I : *block) {
-          auto* clonedI = I.clone();
+#if DEBUG
+          errs() << "Clone block " << block->getName() << "\n";
+#endif
 
-          // Only extract if untainted
-          // Covers the cond and inc blocks; they are processed on the fly due to
-          // their special role in keeping the loop going
-          if (find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end()) {
-            // for.cond
-            if (i == 0) {
-              if (auto* li = dyn_cast<LoadInst>(clonedI)) {
-                auto* ptr = li->getPointerOperand();
+          Instruction* prev;
+          for (auto& I : *block) {
+#if DEBUG
+            errs() << "Clone inst: " << I << "\n";
+#endif
+            auto* clonedI = I.clone();
 
-                if (auto* ai = dyn_cast<AllocaInst>(*ptr->uses().begin())) {
-                  IRBuilder builder(ai);
-                  clonedAlloca = builder.CreateAlloca(ai->getAllocatedType());
-                }
+            // Only extract if untainted
+            // Covers the cond and inc blocks; they are processed on the fly due to
+            // their special role in keeping the loop going
+            if (find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end()) {
+              // for.cond
+              if (i == 0) {
+                if (auto* li = dyn_cast<LoadInst>(clonedI)) {
+                  auto* ptr = li->getPointerOperand();
 
-                for (auto* ptrUser : ptr->users()) {
-                  if (auto* si = dyn_cast<StoreInst>(ptrUser)) {
-                    if (!isa<BinaryOperator>(si->getOperand(0))) {
-                      initVal = si->getOperand(0);
+                  if (auto* ai = dyn_cast<AllocaInst>(*ptr->uses().begin())) {
+                    IRBuilder builder(ai);
+                    clonedAlloca = builder.CreateAlloca(ai->getAllocatedType());
+                  }
+
+                  for (auto* ptrUser : ptr->users()) {
+                    if (auto* si = dyn_cast<StoreInst>(ptrUser)) {
+                      if (!isa<BinaryOperator>(si->getOperand(0))) {
+                        initVal = si->getOperand(0);
+                      }
                     }
                   }
-                }
 
-                li->setOperand(0, clonedAlloca);
-                prev = li;
-              } else if (auto* ci = dyn_cast<CmpInst>(clonedI)) {
-                // TODO: Check if operand originates from the current loop
-                if (isa<LoadInst>(ci->getOperand(0))) {
-                  ci->setOperand(0, prev);
-                }
-                prev = ci;
-              } else if (auto* bi = dyn_cast<BranchInst>(clonedI)) {
-                assert(bi->isConditional());
-                bi->setCondition(prev);
+                  li->setOperand(0, clonedAlloca);
+                  prev = li;
+                } else if (auto* ci = dyn_cast<CmpInst>(clonedI)) {
+                  // TODO: Check if operand originates from the current loop
+                  if (isa<LoadInst>(ci->getOperand(0))) {
+                    ci->setOperand(0, prev);
+                  }
+                  prev = ci;
+                } else if (auto* bi = dyn_cast<BranchInst>(clonedI)) {
+                  assert(bi->isConditional());
+                  bi->setCondition(prev);
 
-                if (auto* B = dyn_cast<BasicBlock>(bi->getOperand(1))) {
-                  forEnd = B;
+                  if (auto* B = dyn_cast<BasicBlock>(bi->getOperand(1))) {
+                    forEnd = B;
+                  }
                 }
               }
-            }
 
-            // for.inc
-            else if (i == 2) {
-              if (auto* li = dyn_cast<LoadInst>(clonedI)) {
-                li->setOperand(0, clonedAlloca);
-                prev = li;
-              } else if (auto* bi = dyn_cast<BinaryOperator>(clonedI)) {
-                auto* lhs = bi->getOperand(0);
-                if (isa<LoadInst>(lhs)) bi->setOperand(0, prev);
-                auto* rhs = bi->getOperand(1);
-                if (isa<LoadInst>(rhs)) bi->setOperand(1, prev);
-                prev = bi;
-              } else if (auto* si = dyn_cast<StoreInst>(clonedI)) {
-                si->setOperand(0, prev);
-                si->setOperand(1, clonedAlloca);
+              // for.inc
+              else if (i == 2) {
+                if (auto* li = dyn_cast<LoadInst>(clonedI)) {
+                  li->setOperand(0, clonedAlloca);
+                  prev = li;
+                } else if (auto* bi = dyn_cast<BinaryOperator>(clonedI)) {
+                  auto* lhs = bi->getOperand(0);
+                  if (isa<LoadInst>(lhs)) bi->setOperand(0, prev);
+                  auto* rhs = bi->getOperand(1);
+                  if (isa<LoadInst>(rhs)) bi->setOperand(1, prev);
+                  prev = bi;
+                } else if (auto* si = dyn_cast<StoreInst>(clonedI)) {
+                  si->setOperand(0, prev);
+                  si->setOperand(1, clonedAlloca);
+                }
               }
-            }
 
-            instClones.emplace(&I, clonedI);
-            builder.Insert(clonedI);
+              instClones.emplace(&I, clonedI);
+              builder.Insert(clonedI);
+            }
+          }
+
+          // for.body
+          // Performs a standard sound cloning procedure (on each operand);
+          // the instructions in the body are unrelated to the loop except the final
+          // branch instruction
+          if (i == 1) patchClonedBlock(clonedBlock, instClones);
+
+          clonedLoop.push_back(clonedBlock);
+        }
+
+        BasicBlock* forEndClone = BasicBlock::Create(forEnd->getContext(), forEnd->getName(), homeFun);
+        IRBuilder builder(forEndClone);
+        for (auto& I : *forEnd) {
+          if (!isa<CallInst>(I) && !isa<LoadInst>(I)) {
+            auto* clone = I.clone();
+            builder.Insert(clone);
+          }
+
+          if (isa<ReturnInst>(I)) {
+            IRBuilder builder(&I);
+            builder.CreateBr(clonedLoop[0]);
+            I.removeFromParent();
+            break;
           }
         }
 
-        // for.body
-        // Performs a standard sound cloning procedure (on each operand);
-        // the instructions in the body are unrelated to the loop except the final
-        // branch instruction
-        if (i == 1) patchClonedBlock(clonedBlock, instClones);
-
-        clonedLoop.push_back(clonedBlock);
-      }
-
-      BasicBlock* forEndClone = BasicBlock::Create(forEnd->getContext(), forEnd->getName(), homeFun);
-      IRBuilder builder(forEndClone);
-      for (auto& I : *forEnd) {
-        if (!isa<CallInst>(I) && !isa<LoadInst>(I)) {
-          auto* clone = I.clone();
-          builder.Insert(clone);
-        }
-
-        if (isa<ReturnInst>(I)) {
-          IRBuilder builder(&I);
-          builder.CreateBr(clonedLoop[0]);
-          I.removeFromParent();
-          break;
-        }
-      }
-
-      for (auto& I : *forEnd) {
-        if (auto* bi = dyn_cast<BranchInst>(&I)) {
-          IRBuilder builder(bi);
-          builder.CreateStore(initVal, clonedAlloca);
-        }
-      }
-
-      // Connect the blocks of the new loop
-      for (int i = 0; i < clonedLoop.size(); i++) {
-        auto* block = clonedLoop[i];
-        for (auto& I : *block) {
+        for (auto& I : *forEnd) {
           if (auto* bi = dyn_cast<BranchInst>(&I)) {
-            // for.cond
-            if (i == 0) {
-              bi->setSuccessor(0, clonedLoop[1]);
-              bi->setSuccessor(1, forEndClone);
-            }
-            // for.body
-            else if (i == 1) {
-              bi->setSuccessor(0, clonedLoop[2]);
-            }
-            // for.inc
-            else if (i == 2) {
-              bi->setSuccessor(0, clonedLoop[0]);
+            IRBuilder builder(bi);
+            builder.CreateStore(initVal, clonedAlloca);
+          }
+        }
+
+        // Connect the blocks of the new loop
+        for (int i = 0; i < clonedLoop.size(); i++) {
+          auto* block = clonedLoop[i];
+          for (auto& I : *block) {
+            if (auto* bi = dyn_cast<BranchInst>(&I)) {
+              // for.cond
+              if (i == 0) {
+                bi->setSuccessor(0, clonedLoop[1]);
+                bi->setSuccessor(1, forEndClone);
+              }
+              // for.body
+              else if (i == 1) {
+                bi->setSuccessor(0, clonedLoop[2]);
+              }
+              // for.inc
+              else if (i == 2) {
+                bi->setSuccessor(0, clonedLoop[0]);
+              }
             }
           }
         }
-      }
 
-      for (auto* untaintedClone : untaintedClones) {
-        if (!isa<BranchInst>(untaintedClone)) untaintedClone->removeFromParent();
+        for (auto* untaintedClone : untaintedClones) {
+          if (!isa<BranchInst>(untaintedClone)) untaintedClone->removeFromParent();
+        }
       }
     }
 #endif

@@ -28,21 +28,21 @@ eg8:
 	TEST=example08 make test
 
 run_eg1:
-	TEST=example01 make run
+	TEST=example01 make run && ../../benchmarks/ctests/example01.out
 run_eg2:
-	TEST=example02 make run
+	TEST=example02 make run && ../../benchmarks/ctests/example02.out
 run_eg3:
-	TEST=example03 make run
+	TEST=example03 make run && ../../benchmarks/ctests/example03.out
 run_eg4:
-	TEST=example04 make run
+	TEST=example04 make run && ../../benchmarks/ctests/example04.out
 run_eg5:
-	TEST=example05 make run
+	TEST=example05 make run && ../../benchmarks/ctests/example05.out
 run_eg6:
-	TEST=example06 make run
+	TEST=example06 make run && ../../benchmarks/ctests/example06.out
 run_eg7:
-	TEST=example07 make run
+	TEST=example07 make run && ../../benchmarks/ctests/example07.out
 run_eg8:
-	TEST=example08 make run
+	TEST=example08 make run && ../../benchmarks/ctests/example08.out
 
 test:
 	$(MAKE) -C build
