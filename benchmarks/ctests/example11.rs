@@ -1,21 +1,24 @@
 include!("../intermittent.rs");
 
 #[no_mangle]
-fn tmp() -> i32 {
+fn input() -> i32 {
     0
 }
 
 #[no_mangle]
-pub static IO_NAME: fn() -> i32 = tmp;
+pub static IO_NAME: fn() -> i32 = input;
 
 #[no_mangle]
 fn log(i: i32) -> () {}
 
 #[no_mangle]
 fn app() -> () {
-    let x = tmp();
+    let x = input();
+    let y = 1;
+    let z = y;
+    log(z);
+    log(x);
     Fresh(x);
-    log(x)
 }
 
 fn main() -> () {

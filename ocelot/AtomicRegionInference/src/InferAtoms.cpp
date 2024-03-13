@@ -369,11 +369,14 @@ void InferAtomsPass::removeAnnotations(inst_vec& toDelete) {
               //* Remove args and their uses as well
               for (auto& arg : ci->args()) {
                 if (auto* argInst = dyn_cast<Instruction>(arg)) {
+                  auto argUsers = argInst->users();
+                  if (std::distance(argUsers.begin(), argUsers.end()) == 0) {
 #if DEBUG
-                  errs() << "Remove call arg: " << *argInst << "\n";
+                    errs() << "No other users, remove call arg: " << *argInst << "\n";
 #endif
-                  argInst->eraseFromParent();
-                  argInst->replaceAllUsesWith(UndefValue::get(argInst->getType()));
+                    argInst->eraseFromParent();
+                    argInst->replaceAllUsesWith(UndefValue::get(argInst->getType()));
+                  }
                 }
               }
             }

@@ -1,4 +1,4 @@
-.PHONY: clean_tests clean eg1 eg2 eg3 eg4 eg5 eg6 eg7 eg8 run_eg1 run_eg2 run_eg3 run_eg4 run_eg5 run_eg6 run_eg7 run_eg8
+.PHONY: clean_tests clean eg1 eg2 eg3 eg4 eg5 eg6 eg7 eg8 eg9 eg10 egr run_eg1 run_eg2 run_eg3 run_eg4 run_eg5 run_eg6 run_eg7 run_eg8 run_eg9 run_eg10
 
 all:
 	make eg1
@@ -9,7 +9,11 @@ all:
 	make eg6
 	make eg7
 	make eg8
-
+	make eg9
+	make eg19
+	make egr
+	make eg11
+	
 eg1:
 	TEST=example01 make test
 eg2:
@@ -26,6 +30,16 @@ eg7:
 	TEST=example07 make test
 eg8:
 	TEST=example08 make test
+eg9:
+	TEST=example09 make test
+eg10:
+	TEST=example10 make test
+egr:
+	TEST=example make testr
+eg11:
+	TEST=example11 make testr
+eg12:
+	TEST=example12 make testr
 
 run_eg1:
 	TEST=example01 make run && ../../benchmarks/ctests/example01.out
@@ -43,6 +57,10 @@ run_eg7:
 	TEST=example07 make run && ../../benchmarks/ctests/example07.out
 run_eg8:
 	TEST=example08 make run && ../../benchmarks/ctests/example08.out
+run_eg9:
+	TEST=example09 make run && ../../benchmarks/ctests/example09.out
+run_eg10:
+	TEST=example10 make run && ../../benchmarks/ctests/example10.out
 
 test:
 	$(MAKE) -C build
@@ -54,6 +72,19 @@ test:
 		-fpass-plugin=build/src/InferAtomsPass.dylib\
 		-fno-discard-value-names\
 		../../benchmarks/ctests/$(TEST).c\
+		-o ../../benchmarks/ctests/$(TEST).ll
+
+testr:
+	$(MAKE) -C build
+	rustc ../../benchmarks/ctests/$(TEST).rs --emit llvm-bc -o ../../benchmarks/ctests/$(TEST).bc
+	clang -S -emit-llvm\
+		-fno-discard-value-names\
+		../../benchmarks/ctests/$(TEST).bc\
+		-o ../../benchmarks/ctests/$(TEST).orig.ll
+	clang -S -emit-llvm\
+		-fpass-plugin=build/src/InferAtomsPass.dylib\
+		-fno-discard-value-names\
+		../../benchmarks/ctests/$(TEST).bc\
 		-o ../../benchmarks/ctests/$(TEST).ll
 
 run:

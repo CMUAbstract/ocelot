@@ -619,10 +619,20 @@ std::set<CallInst*> findInputInsts(Module* M) {
   // Find IO_NAME annotations
   for (auto& gv : M->globals()) {
     if (gv.getName().starts_with("IO_NAME")) {
-      if (auto* ioFun = dyn_cast<Function>(gv.getInitializer())) {
+      Function* ioFun;
+
+      auto* init = gv.getInitializer();
+      if (isa<Function>(init)) {
+        ioFun = dyn_cast<Function>(init);
+      } else {
+        ioFun = dyn_cast<Function>(init->getOperand(0));
+      }
+
+      if (ioFun != nullptr) {
 #if DEBUG
         errs() << "Found IO fun: " << ioFun->getName() << "\n";
 #endif
+
         // Now, search for calls to those functions
         for (auto& F : *M) {
           for (auto& B : F) {
