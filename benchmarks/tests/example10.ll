@@ -1,5 +1,5 @@
-; ModuleID = '../../benchmarks/ctests/example09.c'
-source_filename = "../../benchmarks/ctests/example09.c"
+; ModuleID = '../../benchmarks/tests/example10.c'
+source_filename = "../../benchmarks/tests/example10.c"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-macosx12.0.0"
 
@@ -40,52 +40,33 @@ declare i32 @printf(ptr noundef, ...) #1
 define void @app() #0 {
 entry:
   %x = alloca i32, align 4
-  %0 = alloca i32, align 4
   %i = alloca i32, align 4
   call void @atomic_start()
   %call = call i32 @input()
   store i32 %call, ptr %x, align 4
-  store i32 0, ptr %i, align 4
+  %0 = load i32, ptr %x, align 4
+  store i32 %0, ptr %i, align 4
   br label %for.cond
 
-for.cond:                                         ; preds = %entry, %for.inc, <null operand!>
+for.cond:                                         ; preds = %for.inc, %entry, <null operand!>, <null operand!>
   %1 = load i32, ptr %i, align 4
-  %cmp = icmp slt i32 %1, 10
-  br i1 %cmp, label %for.body, label %for.end
+  %2 = icmp slt i32 %1, 10
+  br i1 %2, label %for.body, label %for.end
 
-for.body:                                         ; preds = %for.cond
-  %2 = load i32, ptr %x, align 4
-  call void @log(i32 noundef %2)
+for.body:                                         ; preds = %for.cond, <null operand!>
+  %3 = load i32, ptr %i, align 4
+  %4 = add nsw i32 %3, 2
+  call void @log(i32 noundef %4)
   br label %for.inc
 
 for.inc:                                          ; preds = %for.body, <null operand!>
-  %3 = load i32, ptr %i, align 4
-  %inc = add nsw i32 %3, 1
-  store i32 %inc, ptr %i, align 4
+  %5 = load i32, ptr %i, align 4
+  %6 = add nsw i32 %5, 1
+  store i32 %6, ptr %i, align 4
   br label %for.cond, !llvm.loop !5
 
-for.end:                                          ; preds = %for.cond
+for.end:                                          ; preds = %for.cond, <null operand!>
   call void @atomic_end()
-  store i32 0, ptr %0, align 4
-  br label %for.cond1
-
-for.cond1:                                        ; preds = %for.inc3, %for.end
-  %4 = load i32, ptr %0, align 4
-  %5 = icmp slt i32 %4, 10
-  br i1 %5, label %for.body2, label %for.end4
-
-for.body2:                                        ; preds = %for.cond1
-  %6 = load i32, ptr %i, align 4
-  call void @log(i32 noundef %6)
-  br label %for.inc3
-
-for.inc3:                                         ; preds = %for.body2
-  %7 = load i32, ptr %0, align 4
-  %8 = add nsw i32 %7, 1
-  store i32 %8, ptr %0, align 4
-  br label %for.cond1, !llvm.loop !5
-
-for.end4:                                         ; preds = %for.cond1
   ret void
 }
 

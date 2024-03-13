@@ -1,4 +1,4 @@
-; ModuleID = '../../benchmarks/ctests/example11.bc'
+; ModuleID = '../../benchmarks/tests/example11.bc'
 source_filename = "example11.808d53e03ac95af8-cgu.0"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-macosx12.0.0"
@@ -114,10 +114,11 @@ start:
 ; Function Attrs: uwtable
 define dso_local void @app() unnamed_addr #1 {
 start:
+  call void @atomic_start()
   %x = call i32 @input()
-  call void @log(i32 1)
   call void @log(i32 %x)
-  call void @Fresh(i32 %x)
+  call void @atomic_end()
+  call void @log(i32 1)
   ret void
 }
 
@@ -125,12 +126,6 @@ start:
 define internal void @_ZN9example114main17h0b701389294a589fE() unnamed_addr #1 {
 start:
   call void @app()
-  ret void
-}
-
-; Function Attrs: uwtable
-define internal void @Fresh(i32 %_var) unnamed_addr #1 {
-start:
   ret void
 }
 

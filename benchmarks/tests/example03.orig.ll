@@ -1,10 +1,28 @@
-; ModuleID = '../../benchmarks/ctests/example02.c'
-source_filename = "../../benchmarks/ctests/example02.c"
+; ModuleID = '../../benchmarks/tests/example03.c'
+source_filename = "../../benchmarks/tests/example03.c"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-macosx12.0.0"
 
-@IO_NAME = global ptr @sense, align 8
+@IO_NAME = global ptr @input, align 8
 @.str = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define void @Fresh(i32 noundef %x) #0 {
+entry:
+  %x.addr = alloca i32, align 4
+  store i32 %x, ptr %x.addr, align 4
+  ret void
+}
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define void @Consistent(i32 noundef %x, i32 noundef %id) #0 {
+entry:
+  %x.addr = alloca i32, align 4
+  %id.addr = alloca i32, align 4
+  store i32 %x, ptr %x.addr, align 4
+  store i32 %id, ptr %id.addr, align 4
+  ret void
+}
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define void @atomic_start() #0 {
@@ -19,18 +37,9 @@ entry:
 }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
-define i32 @sense() #0 {
+define i32 @input() #0 {
 entry:
   ret i32 0
-}
-
-; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
-define i32 @norm(i32 noundef %t) #0 {
-entry:
-  %t.addr = alloca i32, align 4
-  store i32 %t, ptr %t.addr, align 4
-  %0 = load i32, ptr %t.addr, align 4
-  ret i32 %0
 }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
@@ -46,29 +55,23 @@ entry:
 declare i32 @printf(ptr noundef, ...) #1
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
-define i32 @tmp() #0 {
-entry:
-  %t = alloca i32, align 4
-  %t_norm = alloca i32, align 4
-  %call = call i32 @sense()
-  store i32 %call, ptr %t, align 4
-  %0 = load i32, ptr %t, align 4
-  %call1 = call i32 @norm(i32 noundef %0)
-  store i32 %call1, ptr %t_norm, align 4
-  %1 = load i32, ptr %t_norm, align 4
-  ret i32 %1
-}
-
-; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define void @app() #0 {
 entry:
   %x = alloca i32, align 4
-  call void @atomic_start()
-  %call = call i32 @tmp()
+  %y = alloca i32, align 4
+  %z = alloca i32, align 4
+  %call = call i32 @input()
   store i32 %call, ptr %x, align 4
-  %0 = load i32, ptr %x, align 4
-  call void @log(i32 noundef %0)
-  call void @atomic_end()
+  store i32 1, ptr %y, align 4
+  %0 = load i32, ptr %y, align 4
+  %add = add nsw i32 %0, 1
+  store i32 %add, ptr %z, align 4
+  %1 = load i32, ptr %z, align 4
+  call void @log(i32 noundef %1)
+  %2 = load i32, ptr %x, align 4
+  call void @log(i32 noundef %2)
+  %3 = load i32, ptr %x, align 4
+  call void @Fresh(i32 noundef %3)
   ret void
 }
 

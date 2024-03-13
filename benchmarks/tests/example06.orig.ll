@@ -1,10 +1,28 @@
-; ModuleID = '../../benchmarks/ctests/example03.c'
-source_filename = "../../benchmarks/ctests/example03.c"
+; ModuleID = '../../benchmarks/tests/example06.c'
+source_filename = "../../benchmarks/tests/example06.c"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-macosx12.0.0"
 
 @IO_NAME = global ptr @input, align 8
 @.str = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define void @Fresh(i32 noundef %x) #0 {
+entry:
+  %x.addr = alloca i32, align 4
+  store i32 %x, ptr %x.addr, align 4
+  ret void
+}
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define void @Consistent(i32 noundef %x, i32 noundef %id) #0 {
+entry:
+  %x.addr = alloca i32, align 4
+  %id.addr = alloca i32, align 4
+  store i32 %x, ptr %x.addr, align 4
+  store i32 %id, ptr %id.addr, align 4
+  ret void
+}
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define void @atomic_start() #0 {
@@ -19,9 +37,12 @@ entry:
 }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
-define i32 @input() #0 {
+define i32 @input(i32 noundef %i) #0 {
 entry:
-  ret i32 0
+  %i.addr = alloca i32, align 4
+  store i32 %i, ptr %i.addr, align 4
+  %0 = load i32, ptr %i.addr, align 4
+  ret i32 %0
 }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
@@ -39,21 +60,16 @@ declare i32 @printf(ptr noundef, ...) #1
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define void @app() #0 {
 entry:
+  %i = alloca i32, align 4
   %x = alloca i32, align 4
-  %y = alloca i32, align 4
-  %z = alloca i32, align 4
-  call void @atomic_start()
-  %call = call i32 @input()
+  store i32 1, ptr %i, align 4
+  %0 = load i32, ptr %i, align 4
+  %call = call i32 @input(i32 noundef %0)
   store i32 %call, ptr %x, align 4
-  %0 = load i32, ptr %x, align 4
-  call void @log(i32 noundef %0)
-  call void @atomic_end()
-  store i32 1, ptr %y, align 4
-  %1 = load i32, ptr %y, align 4
-  %2 = add nsw i32 %1, 1
-  store i32 %2, ptr %z, align 4
-  %3 = load i32, ptr %z, align 4
-  call void @log(i32 noundef %3)
+  %1 = load i32, ptr %x, align 4
+  call void @Fresh(i32 noundef %1)
+  %2 = load i32, ptr %x, align 4
+  call void @log(i32 noundef %2)
   ret void
 }
 

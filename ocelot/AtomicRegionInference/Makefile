@@ -10,7 +10,7 @@ all:
 	make eg7
 	make eg8
 	make eg9
-	make eg19
+	make eg10
 	make egr
 	make eg11
 	
@@ -42,59 +42,59 @@ eg12:
 	TEST=example12 make testr
 
 run_eg1:
-	TEST=example01 make run && ../../benchmarks/ctests/example01.out
+	TEST=example01 make run && ../../benchmarks/tests/example01.out
 run_eg2:
-	TEST=example02 make run && ../../benchmarks/ctests/example02.out
+	TEST=example02 make run && ../../benchmarks/tests/example02.out
 run_eg3:
-	TEST=example03 make run && ../../benchmarks/ctests/example03.out
+	TEST=example03 make run && ../../benchmarks/tests/example03.out
 run_eg4:
-	TEST=example04 make run && ../../benchmarks/ctests/example04.out
+	TEST=example04 make run && ../../benchmarks/tests/example04.out
 run_eg5:
-	TEST=example05 make run && ../../benchmarks/ctests/example05.out
+	TEST=example05 make run && ../../benchmarks/tests/example05.out
 run_eg6:
-	TEST=example06 make run && ../../benchmarks/ctests/example06.out
+	TEST=example06 make run && ../../benchmarks/tests/example06.out
 run_eg7:
-	TEST=example07 make run && ../../benchmarks/ctests/example07.out
+	TEST=example07 make run && ../../benchmarks/tests/example07.out
 run_eg8:
-	TEST=example08 make run && ../../benchmarks/ctests/example08.out
+	TEST=example08 make run && ../../benchmarks/tests/example08.out
 run_eg9:
-	TEST=example09 make run && ../../benchmarks/ctests/example09.out
+	TEST=example09 make run && ../../benchmarks/tests/example09.out
 run_eg10:
-	TEST=example10 make run && ../../benchmarks/ctests/example10.out
+	TEST=example10 make run && ../../benchmarks/tests/example10.out
 
 test:
 	$(MAKE) -C build
 	clang -S -emit-llvm\
 		-fno-discard-value-names\
-		../../benchmarks/ctests/$(TEST).c\
-		-o ../../benchmarks/ctests/$(TEST).orig.ll
+		../../benchmarks/tests/$(TEST).c\
+		-o ../../benchmarks/tests/$(TEST).orig.ll
 	clang -S -emit-llvm\
 		-fpass-plugin=build/src/InferAtomsPass.dylib\
 		-fno-discard-value-names\
-		../../benchmarks/ctests/$(TEST).c\
-		-o ../../benchmarks/ctests/$(TEST).ll
+		../../benchmarks/tests/$(TEST).c\
+		-o ../../benchmarks/tests/$(TEST).ll
 
 testr:
 	$(MAKE) -C build
-	rustc ../../benchmarks/ctests/$(TEST).rs --emit llvm-bc -o ../../benchmarks/ctests/$(TEST).bc
+	rustc ../../benchmarks/tests/$(TEST).rs --emit llvm-bc -o ../../benchmarks/tests/$(TEST).bc
 	clang -S -emit-llvm\
 		-fno-discard-value-names\
-		../../benchmarks/ctests/$(TEST).bc\
-		-o ../../benchmarks/ctests/$(TEST).orig.ll
+		../../benchmarks/tests/$(TEST).bc\
+		-o ../../benchmarks/tests/$(TEST).orig.ll
 	clang -S -emit-llvm\
 		-fpass-plugin=build/src/InferAtomsPass.dylib\
 		-fno-discard-value-names\
-		../../benchmarks/ctests/$(TEST).bc\
-		-o ../../benchmarks/ctests/$(TEST).ll
+		../../benchmarks/tests/$(TEST).bc\
+		-o ../../benchmarks/tests/$(TEST).ll
 
 run:
 	$(MAKE) -C build
 	clang -fpass-plugin=build/src/InferAtomsPass.dylib\
-		../../benchmarks/ctests/$(TEST).c\
-		-o ../../benchmarks/ctests/$(TEST).out
+		../../benchmarks/tests/$(TEST).c\
+		-o ../../benchmarks/tests/$(TEST).out
 
 clean_tests:
-	find ../../benchmarks/ctests -name "*.ll" -exec rm -rf {} \;
+	find ../../benchmarks/tests -name "*.ll" -exec rm -rf {} \;
 
 clean:
 	rm -rf build

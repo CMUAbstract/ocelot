@@ -1,10 +1,28 @@
-; ModuleID = '../../benchmarks/ctests/example05.c'
-source_filename = "../../benchmarks/ctests/example05.c"
+; ModuleID = '../../benchmarks/tests/example02.c'
+source_filename = "../../benchmarks/tests/example02.c"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-macosx12.0.0"
 
-@IO_NAME = global ptr @input, align 8
+@IO_NAME = global ptr @sense, align 8
 @.str = private unnamed_addr constant [4 x i8] c"%d\0A\00", align 1
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define void @Fresh(i32 noundef %x) #0 {
+entry:
+  %x.addr = alloca i32, align 4
+  store i32 %x, ptr %x.addr, align 4
+  ret void
+}
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define void @Consistent(i32 noundef %x, i32 noundef %id) #0 {
+entry:
+  %x.addr = alloca i32, align 4
+  %id.addr = alloca i32, align 4
+  store i32 %x, ptr %x.addr, align 4
+  store i32 %id, ptr %id.addr, align 4
+  ret void
+}
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define void @atomic_start() #0 {
@@ -19,9 +37,18 @@ entry:
 }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
-define i32 @input() #0 {
+define i32 @sense() #0 {
 entry:
   ret i32 0
+}
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define i32 @norm(i32 noundef %t) #0 {
+entry:
+  %t.addr = alloca i32, align 4
+  store i32 %t, ptr %t.addr, align 4
+  %0 = load i32, ptr %t.addr, align 4
+  ret i32 %0
 }
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
@@ -37,54 +64,29 @@ entry:
 declare i32 @printf(ptr noundef, ...) #1
 
 ; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
+define i32 @tmp() #0 {
+entry:
+  %t = alloca i32, align 4
+  %t_norm = alloca i32, align 4
+  %call = call i32 @sense()
+  store i32 %call, ptr %t, align 4
+  %0 = load i32, ptr %t, align 4
+  %call1 = call i32 @norm(i32 noundef %0)
+  store i32 %call1, ptr %t_norm, align 4
+  %1 = load i32, ptr %t_norm, align 4
+  ret i32 %1
+}
+
+; Function Attrs: noinline nounwind optnone ssp uwtable(sync)
 define void @app() #0 {
 entry:
   %x = alloca i32, align 4
-  %0 = alloca i32, align 4
-  %i = alloca i32, align 4
-  call void @atomic_start()
-  %call = call i32 @input()
+  %call = call i32 @tmp()
   store i32 %call, ptr %x, align 4
-  store i32 0, ptr %i, align 4
-  br label %for.cond
-
-for.cond:                                         ; preds = %entry, %for.inc, <null operand!>
-  %1 = load i32, ptr %i, align 4
-  %cmp = icmp slt i32 %1, 10
-  br i1 %cmp, label %for.body, label %for.end
-
-for.body:                                         ; preds = %for.cond
-  %2 = load i32, ptr %x, align 4
-  call void @log(i32 noundef %2)
-  br label %for.inc
-
-for.inc:                                          ; preds = %for.body, <null operand!>
-  %3 = load i32, ptr %i, align 4
-  %inc = add nsw i32 %3, 1
-  store i32 %inc, ptr %i, align 4
-  br label %for.cond, !llvm.loop !5
-
-for.end:                                          ; preds = %for.cond
-  call void @atomic_end()
-  store i32 0, ptr %0, align 4
-  br label %for.cond1
-
-for.cond1:                                        ; preds = %for.inc3, %for.end
-  %4 = load i32, ptr %0, align 4
-  %5 = icmp slt i32 %4, 10
-  br i1 %5, label %for.body2, label %for.end4
-
-for.body2:                                        ; preds = %for.cond1
-  call void @log(i32 noundef 1)
-  br label %for.inc3
-
-for.inc3:                                         ; preds = %for.body2
-  %6 = load i32, ptr %0, align 4
-  %7 = add nsw i32 %6, 1
-  store i32 %7, ptr %0, align 4
-  br label %for.cond1, !llvm.loop !5
-
-for.end4:                                         ; preds = %for.cond1
+  %0 = load i32, ptr %x, align 4
+  call void @Fresh(i32 noundef %0)
+  %1 = load i32, ptr %x, align 4
+  call void @log(i32 noundef %1)
   ret void
 }
 
@@ -106,5 +108,3 @@ attributes #1 = { "frame-pointer"="non-leaf" "no-trapping-math"="true" "stack-pr
 !2 = !{i32 7, !"uwtable", i32 1}
 !3 = !{i32 7, !"frame-pointer", i32 1}
 !4 = !{!"Homebrew clang version 17.0.2"}
-!5 = distinct !{!5, !6}
-!6 = !{!"llvm.loop.mustprogress"}

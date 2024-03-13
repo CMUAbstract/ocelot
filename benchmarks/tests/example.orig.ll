@@ -1,4 +1,4 @@
-; ModuleID = '../../benchmarks/ctests/example.bc'
+; ModuleID = '../../benchmarks/tests/example.bc'
 source_filename = "example.a08634fc28d17a86-cgu.0"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-macosx12.0.0"

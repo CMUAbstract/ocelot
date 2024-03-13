@@ -241,7 +241,6 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
               isAtomicBoundary = true;
           }
 
-          // TODO: Exception with the entry block to a loop (prepone untainted insts instead)
           if (find(targetInsts.begin(), targetInsts.end(), &I) == targetInsts.end() && !isa<AllocaInst>(&I) && !inExistingSet && !isAtomicBoundary) {
 #if DEBUG
             errs() << "__Should be delayed__\n";
