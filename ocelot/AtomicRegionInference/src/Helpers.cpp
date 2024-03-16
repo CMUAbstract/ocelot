@@ -80,6 +80,10 @@ void patchClonedBlock(BasicBlock* block, inst_inst_map clonedInsts) {
       auto* cond = dyn_cast<Instruction>(ci->getOperand(0));
       inst_inst_map::iterator it = clonedInsts.find(cond);
       if (it != clonedInsts.end()) ci->setOperand(0, it->second);
+    } else if (auto* ei = dyn_cast<ExtractValueInst>(&I)) {
+      auto* operand = dyn_cast<Instruction>(ei->getOperand(0));
+      inst_inst_map::iterator it = clonedInsts.find(operand);
+      if (it != clonedInsts.end()) ei->setOperand(0, it->second);
     }
   }
 }

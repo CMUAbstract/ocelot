@@ -1,4 +1,4 @@
-; ModuleID = '../../benchmarks/ctests/example12.bc'
+; ModuleID = '../../benchmarks/tests/example12.bc'
 source_filename = "example12.2ec73fdcc3bed253-cgu.0"
 target datalayout = "e-m:o-i64:64-i128:128-n32:64-S128"
 target triple = "arm64-apple-macosx12.0.0"
@@ -274,6 +274,6 @@ attributes #3 = { "frame-pointer"="non-leaf" "target-cpu"="apple-m1" }
 !0 = !{i32 8, !"PIC Level", i32 2}
 !1 = !{i32 7, !"PIE Level", i32 2}
 !2 = !{!"rustc version 1.73.0 (cc66ad468 2023-10-03)"}
-!3 = !{i32 1453212}
+!3 = !{i32 1453225}
 !4 = !{}
 !5 = !{i32 0, i32 2}

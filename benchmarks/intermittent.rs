@@ -29,6 +29,7 @@ fn Consistent<T>(_var: T, _id: u16) -> () {}
 
 #[allow(dead_code)]
 #[allow(non_snake_case)]
+#[no_mangle]
 fn FreshConsistent<T>(_var: T, _id: u16) -> () {}
 
 //#[inline(always)]

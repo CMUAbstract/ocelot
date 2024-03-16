@@ -179,5 +179,5 @@ attributes #3 = { "frame-pointer"="non-leaf" "target-cpu"="apple-m1" }
 !0 = !{i32 8, !"PIC Level", i32 2}
 !1 = !{i32 7, !"PIE Level", i32 2}
 !2 = !{!"rustc version 1.73.0 (cc66ad468 2023-10-03)"}
-!3 = !{i32 1115277}
+!3 = !{i32 1115290}
 !4 = !{}

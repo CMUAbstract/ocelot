@@ -314,7 +314,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
         inst_inst_map instClones;
 
         auto loopBlocks = taintedLoop->getBlocks();
-        assert(loopBlocks.size() == 3);
+        // assert(loopBlocks.size() == 3);
 
         for (int i = 0; i < loopBlocks.size(); i++) {
           auto* block = loopBlocks[i];
@@ -366,7 +366,8 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
                   assert(bi->isConditional());
                   bi->setCondition(prev);
 
-                  if (auto* B = dyn_cast<BasicBlock>(bi->getOperand(1))) {
+                  if (auto* B = dyn_cast<BasicBlock>(bi->getOperand(2))) {
+                    // errs() << "ayo: " << *B << "\n";
                     forEnd = B;
                   }
                 }
@@ -403,7 +404,7 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
           clonedLoop.push_back(clonedBlock);
         }
 
-        BasicBlock* forEndClone = BasicBlock::Create(forEnd->getContext(), forEnd->getName(), homeFun);
+        auto* forEndClone = BasicBlock::Create(forEnd->getContext(), forEnd->getName(), homeFun);
         IRBuilder builder(forEndClone);
         for (auto& I : *forEnd) {
           if (!isa<CallInst>(I) && !isa<LoadInst>(I)) {
@@ -438,7 +439,8 @@ void InferFreshCons::addRegion(inst_vec targetInsts, inst_vec_vec* other, inst_v
               }
               // for.body
               else if (i == 1) {
-                bi->setSuccessor(0, clonedLoop[2]);
+                // bi->setSuccessor(0, clonedLoop[2]);
+                bi->setSuccessor(0, clonedLoop[0]);
               }
               // for.inc
               else if (i == 2) {
@@ -653,8 +655,7 @@ Function* InferFreshCons::findCandidate(std::map<Instruction*, BasicBlock*> bloc
   if (funList.size() == 1) return funList.at(0);
 
   /* Algo goal: get the deepest function that still calls (or is) all funcs in funcList.
-   * Consider: multiple calls? Should be dealt with in the addRegion -- eventually each caller
-   * gets its own region
+   * Consider: multiple calls? Should be dealt with in the addRegion -- eventually each caller gets its own region
    */
   Function* goal = nullptr;
 #if DEBUG
