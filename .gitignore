@@ -1,0 +1,6 @@
+.vscode
+ocelot/AtomicRegionInference/build
+benchmarks/tests/*.out
+benchmarks/tests/*.bc
+
+.DS_Store
