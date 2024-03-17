@@ -40,6 +40,8 @@ eg11:
 	TEST=example11 make testr
 eg12:
 	TEST=example12 make testr
+eg13:
+	TEST=example13 make testr
 
 run_eg1:
 	TEST=example01 make run && ../../benchmarks/tests/example01.out
